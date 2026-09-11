@@ -1,114 +1,126 @@
-import pandas as pd
-import uuid
-import logging
-from backend.src.models import HeartRate, Temperature, RingConfiguration, Tag, CardiovascularAge, RingBattery
-from backend.src.ingestion.base import IngestionBase
+"""Streams and metadata: heartrate, temperature, ringbatterylevel, ringconfiguration,
+enhancedtag/tag, dailycardiovascularage, vo2max."""
+from __future__ import annotations
 
-logger = logging.getLogger("CommonProcessor")
+import logging
+from typing import Any, Dict, List
+
+from backend.src.ingestion.base import IngestionBase
+from backend.src.models import (
+    CardiovascularAge, HeartRate, RingBattery, RingConfiguration, Tag, Temperature, Vo2Max,
+)
+
+logger = logging.getLogger(__name__)
+
 
 class CommonProcessor(IngestionBase):
-    def process_heart_rate(self, file_path: str):
-        df = self._read_csv_robust(file_path)
-        if df is None or df.empty:
-            return
-
-        records = []
-        for _, row in df.iterrows():
+    def process_heart_rate(self, rows: List[Dict[str, str]]) -> int:
+        records: List[Dict[str, Any]] = []
+        for row in rows:
             try:
-                bpm = self._parse_int(row.get('bpm'))
-                if bpm is None:
+                ts = self.parse_datetime(row.get("timestamp"))
+                bpm = self.parse_int(row.get("bpm"))
+                if ts is None or bpm is None:
                     continue
-                hr = HeartRate(
-                    timestamp=self._parse_datetime(row.get('timestamp')),
-                    bpm=bpm,
-                    source=row.get('source') or ''
-                )
-                records.append(hr)
-            except Exception as e:
-                continue
-        
-        self._batch_upsert(HeartRate, records, ['timestamp'])
+                records.append({"timestamp": ts, "bpm": bpm, "source": self.parse_str(row.get("source")) or ""})
+            except Exception as exc:
+                self.row_error("heartrate", row, exc)
+        return self.upsert(HeartRate, records, ["timestamp"])
 
-    def process_temperature(self, file_path: str):
-        df = self._read_csv_robust(file_path)
-        if df is None or df.empty:
-            return
-
-        records = []
-        for _, row in df.iterrows():
+    def process_temperature(self, rows: List[Dict[str, str]]) -> int:
+        records: List[Dict[str, Any]] = []
+        for row in rows:
             try:
-                skin_temp = self._parse_float(row.get('skin_temp'))
-                if skin_temp is None:
+                ts = self.parse_datetime(row.get("timestamp"))
+                skin_temp = self.parse_float(row.get("skin_temp"))
+                if ts is None or skin_temp is None:
                     continue
+                records.append({"timestamp": ts, "skin_temp": skin_temp})
+            except Exception as exc:
+                self.row_error("temperature", row, exc)
+        return self.upsert(Temperature, records, ["timestamp"])
 
-                temp = Temperature(
-                    timestamp=self._parse_datetime(row.get('timestamp')),
-                    skin_temp=skin_temp
-                )
-                records.append(temp)
-            except Exception:
-                continue
-        
-        self._batch_upsert(Temperature, records, ['timestamp'])
-
-    def process_ring_battery(self, df: pd.DataFrame):
-        records = []
-        for _, row in df.iterrows():
+    def process_ring_battery(self, rows: List[Dict[str, str]]) -> int:
+        records: List[Dict[str, Any]] = []
+        for row in rows:
             try:
-                batt = RingBattery(
-                    timestamp=self._parse_datetime(row.get('timestamp')),
-                    level=self._parse_int(row.get('level')),
-                    charging=bool(self._parse_int(row.get('charging'))),
-                    in_charger=bool(self._parse_int(row.get('in_charger')))
-                )
-                records.append(batt)
-            except Exception:
-                pass
-        
-        self._batch_upsert(RingBattery, records, ['timestamp'])
+                ts = self.parse_datetime(row.get("timestamp"))
+                level = self.parse_int(row.get("level"))
+                if ts is None or level is None:
+                    continue
+                records.append({
+                    "timestamp": ts,
+                    "level": level,
+                    "charging": bool(self.parse_bool(row.get("charging"))),
+                    "in_charger": bool(self.parse_bool(row.get("in_charger"))),
+                })
+            except Exception as exc:
+                self.row_error("ringbatterylevel", row, exc)
+        return self.upsert(RingBattery, records, ["timestamp"])
 
-    def process_ring_configuration(self, df: pd.DataFrame):
-        records = []
-        for _, row in df.iterrows():
+    def process_ring_configuration(self, rows: List[Dict[str, str]]) -> int:
+        records: List[Dict[str, Any]] = []
+        for row in rows:
             try:
-                conf = RingConfiguration(
-                    id=str(row.get('id', uuid.uuid4())),
-                    firmware_version=row.get('firmware_version'),
-                    size=self._parse_int(row.get('size')),
-                    color=row.get('color'),
-                    hardware_type=row.get('hardware_type')
-                )
-                records.append(conf)
-            except:
-                pass
-        self._upsert(RingConfiguration, records, ['id'])
+                records.append({
+                    "id": self.row_id(row),
+                    "firmware_version": self.parse_str(row.get("firmware_version")),
+                    "size": self.parse_int(row.get("size")),
+                    "color": self.parse_str(row.get("color")),
+                    "hardware_type": self.parse_str(row.get("hardware_type")),
+                })
+            except Exception as exc:
+                self.row_error("ringconfiguration", row, exc)
+        return self.upsert(RingConfiguration, records, ["id"])
 
-    def process_tag(self, df: pd.DataFrame):
-        records = []
-        for _, row in df.iterrows():
+    def process_tag(self, rows: List[Dict[str, str]]) -> int:
+        records: List[Dict[str, Any]] = []
+        for row in rows:
             try:
-                tag = Tag(
-                    id=str(row.get('id', uuid.uuid4())),
-                    start_time=self._parse_datetime(row.get('start_time')),
-                    end_time=self._parse_datetime(row.get('end_time')),
-                    tag_type_code=row.get('tag_type_code'),
-                    comment=row.get('comment')
-                )
-                records.append(tag)
-            except:
-                pass
-        self._upsert(Tag, records, ['id'])
+                start = self.parse_datetime(row.get("start_time")) or self.parse_datetime(row.get("start_day"))
+                end = self.parse_datetime(row.get("end_time")) or self.parse_datetime(row.get("end_day"))
+                records.append({
+                    "id": self.row_id(row),
+                    "start_time": start,
+                    "end_time": end,
+                    "tag_type_code": self.parse_str(row.get("tag_type_code")),
+                    "comment": self.parse_str(row.get("comment")),
+                })
+            except Exception as exc:
+                self.row_error("tag", row, exc)
+        return self.upsert(Tag, records, ["id"])
 
-    def process_cardiovascular_age(self, df: pd.DataFrame):
-        records = []
-        for _, row in df.iterrows():
+    def process_cardiovascular_age(self, rows: List[Dict[str, str]]) -> int:
+        records: List[Dict[str, Any]] = []
+        for row in rows:
             try:
-                rec = CardiovascularAge(
-                    id=str(row.get('id', uuid.uuid4())),
-                    day=self._parse_date(row.get('day')),
-                    vascular_age=self._parse_int(row.get('vascular_age'))
-                )
-                records.append(rec)
-            except:
-                pass
-        self._upsert(CardiovascularAge, records, ['day'])
+                day = self.row_day(row, "timestamp")
+                if day is None:
+                    self.warn("dailycardiovascularage", f"row {row.get('id') or '?'} skipped: no day")
+                    continue
+                records.append({
+                    "id": self.row_id(row),
+                    "day": day,
+                    "vascular_age": self.parse_int(row.get("vascular_age")),
+                })
+            except Exception as exc:
+                self.row_error("dailycardiovascularage", row, exc)
+        return self.upsert(CardiovascularAge, records, ["day"])
+
+    def process_vo2max(self, rows: List[Dict[str, str]]) -> int:
+        records: List[Dict[str, Any]] = []
+        for row in rows:
+            try:
+                day = self.row_day(row, "timestamp")
+                if day is None:
+                    self.warn("vo2max", f"row {row.get('id') or '?'} skipped: no day")
+                    continue
+                records.append({
+                    "id": self.row_id(row),
+                    "day": day,
+                    "timestamp": self.parse_datetime(row.get("timestamp")),
+                    "vo2_max": self.parse_float(row.get("vo2_max")),
+                })
+            except Exception as exc:
+                self.row_error("vo2max", row, exc)
+        return self.upsert(Vo2Max, records, ["day"])

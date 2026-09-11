@@ -1,286 +1,315 @@
-import pandas as pd
+"""Shared helpers for the Oura export processors.
+
+Conventions enforced here so every table agrees with the UI's ``parseISO``:
+
+* All ``DateTime`` columns and every timestamp inside a JSON series are stored
+  as **naive local wall-clock** values.  Aware ISO-8601 inputs (``+02:00``,
+  ``Z``) are converted to the configured local timezone first, then the
+  tzinfo is dropped.  Naive inputs are stored as-is.
+* Values arrive as strings straight from the CSV reader; ``""`` means the
+  field was empty (``;;``) and ``None`` means the column did not exist.
+* Upserts use SQLite ``ON CONFLICT DO UPDATE``.  The ``id`` primary key is
+  never part of the ``SET`` clause on day-keyed tables, so a re-import with
+  different ids cannot raise ``IntegrityError``.
+"""
+from __future__ import annotations
+
 import json
-import uuid
-import os
 import logging
-from datetime import datetime, date
-from typing import List, Any, Type, Optional
-from sqlalchemy.orm import Session
+import re
+import uuid
+from datetime import date, datetime, timedelta, tzinfo
+from typing import Any, Dict, Iterable, List, Optional, Type
+
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.orm import Session
+
 from backend.src.models import Base
 
-# Configure Logger
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("IngestionBase")
+logger = logging.getLogger(__name__)
+
+_NULLISH = {"", "null", "none", "nan", "n/a"}
+_DIGITS_RE = re.compile(r"^\d+$")
+_TRUE = {"true", "t", "1", "yes", "y"}
+_FALSE = {"false", "f", "0", "no", "n"}
+
+# Per-label cap on warnings copied into the import summary (all are logged).
+MAX_WARNINGS_PER_LABEL = 20
+UPSERT_BATCH_SIZE = 500
+
+
+def _is_null(val: Any) -> bool:
+    if val is None:
+        return True
+    if isinstance(val, float) and val != val:  # NaN
+        return True
+    return isinstance(val, str) and val.strip().lower() in _NULLISH
+
 
 class IngestionBase:
-    """
-    Base class for Oura Data Ingestion.
-    Provides robust CSV reading (handling bad quotes/mismatched columns) and batch upserting for SQLite.
-    """
-    def __init__(self, session: Session):
+    """Base class shared by the parser and its processors."""
+
+    def __init__(self, session: Session, tz: Optional[tzinfo] = None,
+                 warnings: Optional[List[str]] = None, tables: Optional[Dict[str, int]] = None):
         self.session = session
+        self.tz = tz  # None -> the machine's local timezone
+        self.warnings: List[str] = warnings if warnings is not None else []
+        self.tables: Dict[str, int] = tables if tables is not None else {}
+        self._warning_counts: Dict[str, int] = {}
 
-    def _read_csv_robust(self, file_path: str) -> Optional[pd.DataFrame]:
-        """Reads CSV handling Oura's sometimes malformed quoting and mismatched column counts."""
-        if not os.path.exists(file_path):
+    # ------------------------------------------------------------------ warnings
+    def warn(self, label: str, message: str) -> None:
+        """Log a warning and copy it into the summary (capped per label)."""
+        logger.warning("%s: %s", label, message)
+        n = self._warning_counts.get(label, 0) + 1
+        self._warning_counts[label] = n
+        if n <= MAX_WARNINGS_PER_LABEL:
+            self.warnings.append(f"{label}: {message}")
+        elif n == MAX_WARNINGS_PER_LABEL + 1:
+            self.warnings.append(f"{label}: further warnings suppressed (see log)")
+
+    def row_error(self, label: str, row: Dict[str, Any], exc: Exception) -> None:
+        ident = row.get("id") or row.get("timestamp") or row.get("day") or "?"
+        self.warn(label, f"row {ident!s} skipped: {exc.__class__.__name__}: {exc}")
+
+    # ------------------------------------------------------------------ time
+    def to_local_naive(self, dt: Optional[datetime]) -> Optional[datetime]:
+        if dt is None:
             return None
-            
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        if not lines:
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(self.tz) if self.tz is not None else dt.astimezone()
+            dt = dt.replace(tzinfo=None)
+        return dt
+
+    def parse_datetime(self, val: Any) -> Optional[datetime]:
+        """ISO-8601 (with offset, ``Z`` or naive) -> naive local datetime."""
+        if _is_null(val):
             return None
-
-        # Parse header
-        header = lines[0].strip().split(';')
-        raw_data_lines = lines[1:]
-        
-        # Heuristic for specific Oura files known to have column alignment issues
-        if 'dailyactivity.csv' in file_path.lower() or 'sleepmodel.csv' in file_path.lower():
-            # Check for column mismatch in first data row
-            if raw_data_lines and len(header) > len(raw_data_lines[0].split(';')):
-                # Data is often aligned to the end (missing start columns)
-                offset = len(header) - len(raw_data_lines[0].split(';'))
-                
-                new_rows = []
-                for line in raw_data_lines:
-                    line = line.strip()
-                    if not line: continue
-                    
-                    # Remove wrapping quotes
-                    if line.startswith('"') and line.endswith('"'):
-                        line = line[1:-1]
-                        
-                    parts = line.split(';')
-                    # Pad missing start columns with None
-                    padded_parts = [None] * offset + parts
-                    new_rows.append(padded_parts)
-                
-                df = pd.DataFrame(new_rows, columns=header)
-                self._clean_dataframe(df)
-                return df
-
-        # Standard processing for other files
-        data = []
-        for line in raw_data_lines:
-            line = line.strip()
-            if not line: continue
-            
-            if line.startswith('"') and line.endswith('"'):
-                line = line[1:-1]
-            
-            parts = line.split(';')
-            
-            # Auto-generate ID if missing but header expects it
-            if len(parts) == len(header) - 1 and header[0] == 'id':
-                parts.insert(0, str(uuid.uuid4()))
-            
-            # Handle trailing empty columns
-            if len(parts) < len(header):
-                parts += [None] * (len(header) - len(parts))
-            
-            # Truncate extra columns
-            if len(parts) > len(header):
-                 parts = parts[:len(header)]
-                 
-            data.append(parts)
-            
-        df = pd.DataFrame(data, columns=header)
-        self._clean_dataframe(df)
-        return df
-
-    def _clean_dataframe(self, df: pd.DataFrame):
-        """Standardizes dataframe values (stripping extra quotes)."""
-        for col in df.columns:
-            df[col] = df[col].apply(lambda x: x.strip('"') if isinstance(x, str) else x)
-
-    def _upsert(self, model: Type[Base], data: List[Any], index_elements: List[str]):
-        """
-        Generic SQLite upsert (INSERT OR REPLACE) implementation.
-        """
-        if not data:
-            return
-
-        # Convert ORM objects to dicts if needed
-        if isinstance(data[0], model):
-            clean_data = []
-            for obj in data:
-                row_dict = {}
-                for col in model.__table__.columns:
-                     val = getattr(obj, col.name)
-                     row_dict[col.name] = val
-                clean_data.append(row_dict)
-            data = clean_data
-
+        if isinstance(val, datetime):
+            return self.to_local_naive(val)
+        if isinstance(val, date):
+            return datetime.combine(val, datetime.min.time())
+        s = str(val).strip().strip('"')
         try:
-            stmt = insert(model).values(data)
-            
-            # Columns to update on conflict (all except the index/primary key)
-            update_dict = {col.name: col for col in stmt.excluded if col.name not in index_elements}
-            
-            if update_dict:
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=index_elements,
-                    set_=update_dict
-                )
-            else:
-                stmt = stmt.on_conflict_do_nothing(index_elements=index_elements)
-
-            self.session.execute(stmt)
-            self.session.commit()
-        except Exception as e:
-            self.session.rollback()
-            logger.error(f"Error in _upsert for {model.__tablename__}: {e}")
-            if data:
-                logger.debug(f"First record sample: {data[0]}")
-            raise e
-
-    def _batch_upsert(self, model: Type[Base], data: List[Any], index_elements: List[str], batch_size=1000):
-        """Batch upsert wrapper to avoid SQLite limit restrictions."""
-        if not data:
-            return
-
-        total_records = len(data)
-        logger.info(f"Upserting {total_records} records into {model.__tablename__}...")
-        
-        for i in range(0, total_records, batch_size):
-            batch = data[i : i + batch_size]
-            self._upsert(model, batch, index_elements)
-
-    # --- Parsing Helpers ---
-
-    def _parse_json_col(self, val):
-        if pd.isna(val) or val == "" or val == 'null':
-            return None
-        if isinstance(val, str):
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            # Unix epoch seconds / milliseconds (e.g. stepcount.end_time)
             try:
-                # Handle CSV double-quote escaping
-                val = val.replace('""', '"')
-                if val.startswith('"') and val.endswith('"'):
-                    val = val[1:-1]
-                return json.loads(val)
-            except json.JSONDecodeError:
+                num = float(s)
+            except ValueError:
                 return None
-        return val
+            if abs(num) > 1e11:
+                num /= 1000.0
+            try:
+                dt = datetime.fromtimestamp(num, tz=self.tz)
+            except (OverflowError, OSError, ValueError):
+                return None
+        return self.to_local_naive(dt)
 
-    def _parse_datetime(self, val):
-        if pd.isna(val) or val == "":
+    def parse_date(self, val: Any) -> Optional[date]:
+        if _is_null(val):
             return None
-        if isinstance(val, str):
-            val = val.replace('"', '')
-        try:
-            return pd.to_datetime(val, format='ISO8601').to_pydatetime()
-        except:
-            return None
-
-    def _parse_date(self, val):
-        if pd.isna(val) or val == "":
-            return None
+        if isinstance(val, datetime):
+            return self.to_local_naive(val).date()
         if isinstance(val, date):
             return val
-        if isinstance(val, str):
-            val = val.replace('"', '')
+        s = str(val).strip().strip('"')
         try:
-            return pd.to_datetime(val).date()
-        except:
-            return None
+            return date.fromisoformat(s[:10])
+        except ValueError:
+            dt = self.parse_datetime(s)
+            return dt.date() if dt else None
 
-    def _parse_float(self, val):
-        if val is None or val == "":
+    def row_day(self, row: Dict[str, Any], *fallback_columns: str) -> Optional[date]:
+        """``day`` column, else the date of the first parseable fallback timestamp."""
+        d = self.parse_date(row.get("day"))
+        if d:
+            return d
+        for col in fallback_columns:
+            dt = self.parse_datetime(row.get(col))
+            if dt:
+                return dt.date()
+        return None
+
+    # ------------------------------------------------------------------ scalars
+    @staticmethod
+    def row_id(row: Dict[str, Any]) -> str:
+        val = row.get("id")
+        if _is_null(val):
+            return str(uuid.uuid4())
+        return str(val).strip()
+
+    @staticmethod
+    def parse_str(val: Any) -> Optional[str]:
+        if _is_null(val):
+            return None
+        return str(val)
+
+    @staticmethod
+    def parse_float(val: Any) -> Optional[float]:
+        if _is_null(val):
             return None
         try:
             return float(val)
-        except ValueError:
+        except (TypeError, ValueError):
             return None
 
-    def _parse_int(self, val):
-        if val is None or val == "":
+    @staticmethod
+    def parse_int(val: Any) -> Optional[int]:
+        if _is_null(val):
             return None
         try:
-            # Handle "100.0" strings as 100
             return int(float(val))
-        except ValueError:
+        except (TypeError, ValueError, OverflowError):
             return None
 
-    def _parse_sequence_to_timestamped_list(self, val, start_time: datetime, interval_seconds: int):
-        """
-        Robustly parses various sequence formats (JSON, AST, comma-separated) 
-        into a uniform list of timestamped objects for the frontend.
-        """
-        if pd.isna(val) or val == "":
+    @staticmethod
+    def parse_bool(val: Any) -> Optional[bool]:
+        if _is_null(val):
             return None
-        
+        if isinstance(val, bool):
+            return val
         if isinstance(val, (int, float)):
-            val = str(int(val))
+            return bool(val)
+        s = str(val).strip().lower()
+        if s in _TRUE:
+            return True
+        if s in _FALSE:
+            return False
+        return None
 
-        items = None
+    @staticmethod
+    def parse_json(val: Any) -> Any:
+        """Parse a JSON column; returns None when empty or not valid JSON."""
+        if _is_null(val):
+            return None
         if isinstance(val, (dict, list)):
-             if isinstance(val, dict) and 'items' in val:
-                 items = val['items']
-             elif isinstance(val, list):
-                 items = val
-        elif isinstance(val, str):
-            val_str = val.strip()
-            if not val_str:
+            return val
+        s = str(val).strip()
+        try:
+            return json.loads(s)
+        except (TypeError, ValueError):
+            # Leftover from pre-2026 exports where the blob was double-escaped.
+            s2 = s.replace('""', '"')
+            if s2.startswith('"') and s2.endswith('"'):
+                s2 = s2[1:-1]
+            try:
+                return json.loads(s2)
+            except (TypeError, ValueError):
                 return None
 
-            # Handle CSV double-quote escaping (e.g. ""key"" -> "key")
-            val_str = val_str.replace('""', '"')
-            if val_str.startswith('"') and val_str.endswith('"'):
-                val_str = val_str[1:-1]
-
-            # 1. JSON parse
-            try:
-                parsed = json.loads(val_str)
-                if isinstance(parsed, dict) and 'items' in parsed:
-                    items = parsed['items']
-                elif isinstance(parsed, list):
-                    items = parsed
-            except json.JSONDecodeError:
-                pass
-
-            if items is None:
-                # 2. Fallback: AST literal eval (only if it looks like a list)
-                try:
-                    if val_str.strip().startswith('['):
-                        import ast
-                        parsed = ast.literal_eval(val_str)
-                        if isinstance(parsed, list):
-                            items = parsed
-                except:
-                    pass
-
-            if items is None:
-                # 3. Fallback: Split/Clean (Handle digit strings "4422" or comma-separated)
-                val_cleaned = val_str.replace('"', '').replace("'", "")
-                if ',' in val_cleaned:
-                        try:
-                            items = [float(x.strip()) for x in val_cleaned.strip('[]').split(',') if x.strip()]
-                        except:
-                            pass
-                else:
-                    # Hypnogram string case: "4422233"
-                    try:
-                        items = [int(c) for c in val_cleaned if c.isdigit()]
-                    except:
-                        pass
-
-        if not items:
-            return None
-
-        result = []
+    # ------------------------------------------------------------------ series
+    @staticmethod
+    def _series(items: Iterable[Any], start: datetime, interval_seconds: float) -> List[Dict[str, Any]]:
+        step = timedelta(seconds=interval_seconds)
+        out = []
         for i, item in enumerate(items):
-            ts = start_time + pd.Timedelta(seconds=i * interval_seconds)
-            
+            ts = (start + step * i).isoformat()
             if isinstance(item, dict):
-                val_to_store = item.copy()
-                val_to_store['timestamp'] = ts.isoformat()
+                entry = dict(item)
+                entry["timestamp"] = ts
             else:
-                val_to_store = {
-                    "timestamp": ts.isoformat(),
-                    "value": item
-                }
-            result.append(val_to_store)
-            
-        return result
+                entry = {"timestamp": ts, "value": item}
+            out.append(entry)
+        return out
+
+    def digit_sequence(self, val: Any, start: Optional[datetime], interval_seconds: int) -> Optional[List[Dict[str, Any]]]:
+        """``"4422233"`` -> timestamped list anchored at ``start``.
+
+        Only applies to values made solely of digits; anything else is
+        ignored (callers pass this only for known sequence columns).
+        """
+        if _is_null(val) or start is None:
+            return None
+        s = str(val).strip()
+        if not _DIGITS_RE.match(s):
+            return None
+        return self._series((int(c) for c in s), start, interval_seconds)
+
+    def sample_series(self, val: Any, fallback_start: Optional[datetime] = None,
+                      fallback_interval: Optional[float] = None) -> Optional[List[Dict[str, Any]]]:
+        """Oura sample object ``{"interval": s, "items": [...], "timestamp": iso}``.
+
+        The list is anchored at the object's OWN ``timestamp`` (converted to
+        local wall-clock) and spaced by its own ``interval``; ``fallback_*``
+        are used only when the object lacks them (or when the value is a
+        bare JSON list).
+        """
+        parsed = self.parse_json(val)
+        if parsed is None:
+            return None
+        if isinstance(parsed, dict):
+            items = parsed.get("items")
+            start = self.parse_datetime(parsed.get("timestamp")) or fallback_start
+            interval = self.parse_float(parsed.get("interval")) or fallback_interval
+        elif isinstance(parsed, list):
+            items, start, interval = parsed, fallback_start, fallback_interval
+        else:
+            return None
+        if not isinstance(items, list) or not items or start is None or not interval:
+            return None
+        return self._series(items, start, interval)
+
+    # ------------------------------------------------------------------ upsert
+    @staticmethod
+    def _as_dicts(model: Type[Base], data: List[Any]) -> List[Dict[str, Any]]:
+        cols = [c.name for c in model.__table__.columns]
+        out = []
+        for obj in data:
+            if isinstance(obj, dict):
+                out.append({c: obj.get(c) for c in cols})
+            else:
+                out.append({c: getattr(obj, c, None) for c in cols})
+        return out
+
+    def upsert(self, model: Type[Base], data: List[Any], index_elements: List[str],
+               batch_size: int = UPSERT_BATCH_SIZE) -> int:
+        """Batched ``INSERT ... ON CONFLICT(index) DO UPDATE``; returns rows written.
+
+        * Rows sharing the conflict key are de-duplicated (last one wins) so a
+          multi-row statement never conflicts with itself.
+        * ``id`` and the conflict key are excluded from the ``SET`` clause.
+        * A failing batch is retried row by row so one bad row is reported in
+          the warnings instead of losing the whole batch.
+        """
+        if not data:
+            return 0
+        rows = self._as_dicts(model, data)
+        table = model.__tablename__
+
+        deduped: Dict[Any, Dict[str, Any]] = {}
+        for r in rows:
+            deduped[tuple(r.get(k) for k in index_elements)] = r
+        rows = list(deduped.values())
+
+        protected = set(index_elements) | {"id"}
+        written = 0
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i:i + batch_size]
+            try:
+                self._execute_upsert(model, batch, index_elements, protected)
+                written += len(batch)
+            except Exception as exc:
+                self.session.rollback()
+                logger.warning("%s: batch of %d failed (%s); retrying row by row", table, len(batch), exc)
+                for r in batch:
+                    try:
+                        self._execute_upsert(model, [r], index_elements, protected)
+                        written += 1
+                    except Exception as row_exc:
+                        self.session.rollback()
+                        self.row_error(table, r, row_exc)
+        self.tables[table] = self.tables.get(table, 0) + written
+        logger.info("%s: upserted %d row(s)", table, written)
+        return written
+
+    def _execute_upsert(self, model: Type[Base], batch: List[Dict[str, Any]],
+                        index_elements: List[str], protected: set) -> None:
+        stmt = insert(model).values(batch)
+        set_ = {c.name: c for c in stmt.excluded if c.name not in protected}
+        if set_:
+            stmt = stmt.on_conflict_do_update(index_elements=index_elements, set_=set_)
+        else:
+            stmt = stmt.on_conflict_do_nothing(index_elements=index_elements)
+        self.session.execute(stmt)
+        self.session.commit()

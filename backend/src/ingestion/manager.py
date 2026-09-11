@@ -1,148 +1,133 @@
-import os
-import zipfile
-import tempfile
-import logging
-import pandas as pd
-from sqlalchemy.orm import Session
-from .base import IngestionBase
-from .processors.sleep import SleepProcessor
-from .processors.activity import ActivityProcessor
-from .processors.readiness import ReadinessProcessor
-from .processors.common import CommonProcessor
+"""Entry point for importing an Oura data-export ZIP.
 
-# Configure Logger
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("OuraParser")
+``OuraParser(db).parse_zip(path)`` extracts the archive, discovers every known
+CSV (any folder depth, exact or date-suffixed names, ``;`` or ``,``), feeds
+each data type to its processor and returns a summary::
+
+    {
+        "files":    {"dailysleep.csv": 14, "workout.csv": "error: ..."},
+        "tables":   {"sleep": 14, "sleep_session": 15, ...},
+        "warnings": ["tag: row 3 skipped: ...", ...],
+    }
+
+One unreadable or malformed file never aborts the rest of the import.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import tempfile
+import zipfile
+from datetime import tzinfo
+from typing import Any, Callable, Dict, List, Optional
+
+from sqlalchemy.orm import Session
+
+from .base import IngestionBase
+from .processors.activity import ActivityProcessor
+from .processors.common import CommonProcessor
+from .processors.readiness import ReadinessProcessor
+from .processors.sleep import SleepProcessor
+from .reader import discover_files, read_many
+
+logger = logging.getLogger(__name__)
+
+Rows = List[Dict[str, str]]
+
 
 class OuraParser(IngestionBase):
-    def __init__(self, session: Session):
-        super().__init__(session)
-        self.sleep_processor = SleepProcessor(session)
-        self.activity_processor = ActivityProcessor(session)
-        self.readiness_processor = ReadinessProcessor(session)
-        self.common_processor = CommonProcessor(session)
+    def __init__(self, session: Session, tz: Optional[tzinfo] = None):
+        super().__init__(session, tz=tz)
+        shared = dict(tz=tz, warnings=self.warnings, tables=self.tables)
+        self.sleep_processor = SleepProcessor(session, **shared)
+        self.activity_processor = ActivityProcessor(session, **shared)
+        self.readiness_processor = ReadinessProcessor(session, **shared)
+        self.common_processor = CommonProcessor(session, **shared)
 
-    def parse_zip(self, zip_path: str):
-        """Extracts ZIP and parses all contained CSVs, handling nested folders."""
-        with tempfile.TemporaryDirectory() as temp_dir:
+    # ------------------------------------------------------------------ public
+    def parse_zip(self, zip_path: str) -> Dict[str, Any]:
+        """Extract ``zip_path`` to a temp dir and import everything it contains."""
+        self._reset()
+        with tempfile.TemporaryDirectory(prefix="oura-export-") as temp_dir:
             try:
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-            except zipfile.BadZipFile:
-                logger.error(f"Error: Invalid ZIP file at {zip_path}")
-                return
-            
-            # Recursively search for a directory containing data files
-            target_dir = temp_dir
-            found_csvs = []
-            for root, dirs, files in os.walk(temp_dir):
-                if "dailysleep.csv" in files or "dailyactivity.csv" in files:
-                    target_dir = root
-                    found_csvs = files
-                    break
-            
-            if not found_csvs:
-                 logger.warning("No Oura CSV files found in the ZIP archive!")
-            else:
-                 logger.info(f"Found data in: {target_dir}")
-            
-            self.parse_directory(target_dir)
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    zf.extractall(temp_dir)
+            except zipfile.BadZipFile as exc:
+                logger.error("Invalid ZIP file at %s: %s", zip_path, exc)
+                self.warnings.append(f"invalid ZIP archive: {exc}")
+                return self._summary({})
+            return self.parse_directory(temp_dir)
 
-    def parse_directory(self, dir_path: str):
-        """Parses all supported CSV files in the directory, merging related files."""
-        
-        # --- 1. Sleep Data ---
-        # Merge dailysleep.csv + sleeptime.csv + dailyspo2.csv
-        sleep_df = self._read_csv_robust(os.path.join(dir_path, "dailysleep.csv"))
-        sleeptime_df = self._read_csv_robust(os.path.join(dir_path, "sleeptime.csv"))
-        spo2_df = self._read_csv_robust(os.path.join(dir_path, "dailyspo2.csv"))
-        
-        merged_sleep = sleep_df
-        
-        # Merge sleeptime
-        if sleeptime_df is not None and not sleeptime_df.empty:
-            if merged_sleep is not None and not merged_sleep.empty:
-                if 'day' in merged_sleep.columns and 'day' in sleeptime_df.columns:
-                    merged_sleep = pd.merge(merged_sleep, sleeptime_df, on='day', how='outer', suffixes=('', '_time'))
-            else:
-                merged_sleep = sleeptime_df
+    def parse_directory(self, dir_path: str) -> Dict[str, Any]:
+        """Import every known CSV found under ``dir_path`` (searched recursively)."""
+        found = discover_files(dir_path)
+        files: Dict[str, Any] = {}
+        if not found:
+            logger.warning("No Oura CSV files found under %s", dir_path)
+            self.warnings.append("no Oura CSV files found in the archive")
+            return self._summary(files)
 
-        # Merge spo2
-        if spo2_df is not None and not spo2_df.empty:
-            if merged_sleep is not None and not merged_sleep.empty:
-                if 'day' in merged_sleep.columns and 'day' in spo2_df.columns:
-                    merged_sleep = pd.merge(merged_sleep, spo2_df, on='day', how='outer', suffixes=('', '_spo2'))
-            else:
-                merged_sleep = spo2_df
+        def load(dtype: str) -> Rows:
+            paths = found.get(dtype) or []
+            if not paths:
+                return []
+            rows, per_file, warns = read_many(paths)
+            files.update(per_file)
+            self.warnings.extend(warns)
+            return rows
 
-        if merged_sleep is not None and not merged_sleep.empty:
-            logger.info("Processing Sleep Data...")
-            self.sleep_processor.process_sleep(merged_sleep)
+        # --- day-keyed summaries (merged by day) ---
+        self._run("sleep", lambda: self.sleep_processor.process_sleep(
+            load("dailysleep"), load("sleeptime"), load("dailyspo2")))
+        self._run("readiness", lambda: self.readiness_processor.process_readiness(
+            load("dailyreadiness"), load("dailystress")))
+        self._run("activity", lambda: self.activity_processor.process_activity(
+            load("dailyactivity"), load("daytimestress")))
+        self._run("resilience", lambda: self.readiness_processor.process_resilience(
+            load("dailyresilience")))
 
-        # --- 2. Readiness Data ---
-        # Merge dailyreadiness.csv + dailystress.csv
-        readiness_df = self._read_csv_robust(os.path.join(dir_path, "dailyreadiness.csv"))
-        stress_df = self._read_csv_robust(os.path.join(dir_path, "dailystress.csv"))
+        # --- id-keyed documents ---
+        self._run("sleep_session", lambda: self.sleep_processor.process_sleep_session(load("sleep_session")))
+        self._run("workout", lambda: self.activity_processor.process_workout(load("workout")))
+        self._run("meditation", lambda: self.activity_processor.process_meditation(load("session")))
+        self._run("ring_configuration", lambda: self.common_processor.process_ring_configuration(
+            load("ringconfiguration")))
+        self._run("tag", lambda: self.common_processor.process_tag(load("tag")))
+        self._run("cardiovascular_age", lambda: self.common_processor.process_cardiovascular_age(
+            load("dailycardiovascularage")))
+        self._run("vo2max", lambda: self.common_processor.process_vo2max(load("vo2max")))
 
-        if readiness_df is not None and not readiness_df.empty:
-            if stress_df is not None and not stress_df.empty:
-                if 'day' in readiness_df.columns and 'day' in stress_df.columns:
-                    merged_readiness = pd.merge(readiness_df, stress_df, on='day', how='outer', suffixes=('', '_stress'))
-                    logger.info("Processing Readiness Data...")
-                    self.readiness_processor.process_readiness(merged_readiness)
-                else:
-                    self.readiness_processor.process_readiness(readiness_df)
-            else:
-                logger.info("Processing Readiness Data...")
-                self.readiness_processor.process_readiness(readiness_df)
-        elif stress_df is not None and not stress_df.empty:
-            logger.info("Processing dailystress.csv as Readiness...")
-            self.readiness_processor.process_readiness(stress_df)
+        # --- timestamp-keyed streams (largest files last) ---
+        self._run("ring_battery", lambda: self.common_processor.process_ring_battery(load("ringbatterylevel")))
+        self._run("heart_rate", lambda: self.common_processor.process_heart_rate(load("heartrate")))
+        self._run("temperature", lambda: self.common_processor.process_temperature(load("temperature")))
 
-        # --- 3. Activity & Other Data ---
-        
-        # Activity
-        act_df = self._read_csv_robust(os.path.join(dir_path, "dailyactivity.csv"))
-        if act_df is not None and not act_df.empty:
-            logger.info("Processing Activity Data...")
-            self.activity_processor.process_activity(act_df)
+        return self._summary(files)
 
-        # Resilience
-        res_df = self._read_csv_robust(os.path.join(dir_path, "dailyresilience.csv"))
-        if res_df is not None and not res_df.empty:
-            self.readiness_processor.process_resilience(res_df)
+    # ------------------------------------------------------------------ helpers
+    def _reset(self) -> None:
+        self.warnings.clear()
+        self.tables.clear()
 
-        # Stress (Daytime) - Merged into Activity by processor
-        day_stress_df = self._read_csv_robust(os.path.join(dir_path, "daytimestress.csv"))
-        if day_stress_df is not None and not day_stress_df.empty:
-            self.activity_processor.process_stress(day_stress_df)
+    def _run(self, table: str, fn: Callable[[], int]) -> None:
+        """Run one processor; a crash is recorded, not propagated."""
+        try:
+            fn()
+        except Exception as exc:
+            logger.exception("Import of %s failed", table)
+            try:
+                self.session.rollback()
+            except Exception:  # pragma: no cover - session already unusable
+                pass
+            self.warnings.append(f"{table}: import failed: {exc.__class__.__name__}: {exc}")
+        self.tables.setdefault(table, 0)
 
-        # File-based processors
-        path_map = {
-            "sleepmodel.csv": self.sleep_processor.process_sleep_session,
-            "workout.csv": self.activity_processor.process_workout,
-            "session.csv": self.activity_processor.process_meditation,
-            "heartrate.csv": self.common_processor.process_heart_rate,
-            "temperature.csv": self.common_processor.process_temperature,
+    def _summary(self, files: Dict[str, Any]) -> Dict[str, Any]:
+        summary = {
+            "files": dict(sorted(files.items(), key=lambda kv: os.path.basename(kv[0]).lower())),
+            "tables": dict(sorted(self.tables.items())),
+            "warnings": list(self.warnings),
         }
-
-        for filename, func in path_map.items():
-            fpath = os.path.join(dir_path, filename)
-            if os.path.exists(fpath):
-                logger.info(f"Processing {filename}...")
-                func(fpath)
-
-        # DataFrame-based common processors
-        common_map = {
-            "ringconfiguration.csv": self.common_processor.process_ring_configuration,
-            "enhancedtag.csv": self.common_processor.process_tag,
-            "dailycardiovascularage.csv": self.common_processor.process_cardiovascular_age,
-            "ringbatterylevel.csv": self.common_processor.process_ring_battery,
-        }
-
-        for filename, func in common_map.items():
-            fpath = os.path.join(dir_path, filename)
-            if os.path.exists(fpath):
-                df = self._read_csv_robust(fpath)
-                if df is not None and not df.empty:
-                    func(df)
+        logger.info("Import summary: %d file(s), %d table(s), %d warning(s)",
+                    len(summary["files"]), len(summary["tables"]), len(summary["warnings"]))
+        return summary

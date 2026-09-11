@@ -1,120 +1,114 @@
-import pandas as pd
-import uuid
-import logging
-from datetime import datetime
-from backend.src.models import Sleep, SleepSession
-from backend.src.ingestion.base import IngestionBase
+"""dailysleep (+ sleeptime + dailyspo2) -> ``sleep``; sleepmodel/sleep -> ``sleep_session``."""
+from __future__ import annotations
 
-logger = logging.getLogger("SleepProcessor")
+import logging
+from datetime import date
+from typing import Any, Dict, List, Optional
+
+from backend.src.ingestion.base import IngestionBase
+from backend.src.models import Sleep, SleepSession
+
+logger = logging.getLogger(__name__)
+
+# sleep-session types that must never be imported
+SKIPPED_SLEEP_TYPES = {"deleted"}
+
 
 class SleepProcessor(IngestionBase):
-    def process_sleep(self, df: pd.DataFrame):
-        records = []
-        for _, row in df.iterrows():
-            day_val = self._parse_date(row.get('day'))
-            if not day_val:
+    def _by_day(self, rows: List[Dict[str, str]], label: str) -> Dict[date, Dict[str, str]]:
+        out: Dict[date, Dict[str, str]] = {}
+        for row in rows:
+            day = self.row_day(row, "timestamp")
+            if day is None:
+                self.warn(label, f"row {row.get('id') or '?'} skipped: no day")
                 continue
+            out[day] = row  # last one wins
+        return out
 
-            # Handle merged fields
-            recommendation = row.get('recommendation')
-            if pd.isna(recommendation): recommendation = None
-            
-            status = row.get('status')
-            if pd.isna(status): status = None
+    def process_sleep(self, sleep_rows: List[Dict[str, str]],
+                      sleeptime_rows: Optional[List[Dict[str, str]]] = None,
+                      spo2_rows: Optional[List[Dict[str, str]]] = None) -> int:
+        """Merge the three day-keyed files into one ``sleep`` row per day."""
+        base = self._by_day(sleep_rows, "dailysleep")
+        times = self._by_day(sleeptime_rows or [], "sleeptime")
+        spo2 = self._by_day(spo2_rows or [], "dailyspo2")
 
-            # SpO2 parsing
-            spo2_data = self._parse_json_col(row.get('spo2_percentage'))
-            avg_spo2 = None
-            if isinstance(spo2_data, dict):
-                avg_spo2 = self._parse_float(spo2_data.get('average'))
-            
-            breathing_index = self._parse_int(row.get('breathing_disturbance_index'))
-
-            # Robust ID generation
-            id_val = row.get('id')
-            if pd.isna(id_val) or str(id_val).lower() == 'nan' or str(id_val).strip() == '':
-                id_val = str(uuid.uuid4())
-
-            rec = Sleep(
-                id=str(id_val),
-                day=day_val,
-                score=self._parse_int(row.get('score')),
-                # timestamp field removed from model, ignoring here if present
-                contributors=self._parse_json_col(row.get('contributors')),
-                
-                # Merged fields
-                optimal_bedtime=self._parse_json_col(row.get('optimal_bedtime')),
-                recommendation=recommendation,
-                status=status,
-                
-                # SpO2 fields
-                average_spo2=avg_spo2,
-                breathing_disturbance_index=breathing_index
-            )
-            records.append(rec)
-        self._upsert(Sleep, records, ['day'])
-
-    def process_sleep_session(self, file_path: str):
-        df = self._read_csv_robust(file_path)
-        if df is None or df.empty:
-            return
-
-        records = []
-        for _, row in df.iterrows():
-            if pd.isna(row.get('day')):
-                continue
-
+        records: List[Dict[str, Any]] = []
+        for day in sorted(set(base) | set(times) | set(spo2)):
+            s, t, o = base.get(day, {}), times.get(day, {}), spo2.get(day, {})
             try:
-                bedtime_start = self._parse_datetime(row.get('bedtime_start'))
-                if not bedtime_start:
-                    day_val = self._parse_date(row.get('day'))
-                    if day_val:
-                        bedtime_start = datetime.combine(day_val, datetime.min.time())
-                
-                if not bedtime_start:
+                spo2_val = self.parse_json(o.get("spo2_percentage"))
+                if isinstance(spo2_val, dict):
+                    average_spo2 = self.parse_float(spo2_val.get("average"))
+                else:  # some exports carry a bare float
+                    average_spo2 = self.parse_float(o.get("spo2_percentage"))
+                records.append({
+                    "id": self.row_id(s) if s else self.row_id(t or o),
+                    "day": day,
+                    "score": self.parse_int(s.get("score")),
+                    "contributors": self.parse_json(s.get("contributors")),
+                    "optimal_bedtime": self.parse_json(t.get("optimal_bedtime")),
+                    "recommendation": self.parse_str(t.get("recommendation")),
+                    "status": self.parse_str(t.get("status")),
+                    "average_spo2": average_spo2,
+                    "breathing_disturbance_index": self.parse_int(o.get("breathing_disturbance_index")),
+                })
+            except Exception as exc:
+                self.row_error("dailysleep", s or t or o, exc)
+        return self.upsert(Sleep, records, ["day"])
+
+    def process_sleep_session(self, rows: List[Dict[str, str]]) -> int:
+        records: List[Dict[str, Any]] = []
+        skipped_deleted = 0
+        for row in rows:
+            try:
+                stype = self.parse_str(row.get("type"))
+                if stype and stype.lower() in SKIPPED_SLEEP_TYPES:
+                    skipped_deleted += 1
                     continue
-
-                sleep = SleepSession(
-                    id=str(row.get('id', uuid.uuid4())),
-                    day=self._parse_date(row.get('day')),
-                    start_time=bedtime_start,
-                    end_time=self._parse_datetime(row.get('bedtime_end')),
-                    type=row.get('type'),
-                    efficiency=self._parse_int(row.get('efficiency')),
-                    latency=self._parse_int(row.get('latency')),
-                    total_sleep_duration=self._parse_int(row.get('total_sleep_duration')),
-                    deep_sleep_duration=self._parse_int(row.get('deep_sleep_duration')),
-                    rem_sleep_duration=self._parse_int(row.get('rem_sleep_duration')),
-                    light_sleep_duration=self._parse_int(row.get('light_sleep_duration')),
-                    awake_time=self._parse_int(row.get('awake_time')),
-                    average_heart_rate=self._parse_float(row.get('average_heart_rate')),
-                    average_hrv=self._parse_int(row.get('average_hrv')),
-                    
-                    # Sequences converted to Timestamped Lists
-                    sleep_phase_5_min=self._parse_sequence_to_timestamped_list(row.get('sleep_phase_5_min'), bedtime_start, 300),
-                    sleep_phase_30_sec=self._parse_sequence_to_timestamped_list(row.get('sleep_phase_30_sec'), bedtime_start, 30),
-                    movement_30_sec=self._parse_sequence_to_timestamped_list(row.get('movement_30_sec'), bedtime_start, 30),
-                    
-                    # Detailed fields
-                    average_breath=self._parse_float(row.get('average_breath')),
-                    bedtime_end=self._parse_datetime(row.get('bedtime_end')),
-                    bedtime_start=bedtime_start,
-                    lowest_heart_rate=self._parse_int(row.get('lowest_heart_rate')),
-                    low_battery_alert=bool(self._parse_int(row.get('low_battery_alert'))) if row.get('low_battery_alert') else None,
-                    period=self._parse_int(row.get('period')),
-                    restless_periods=self._parse_int(row.get('restless_periods')),
-                    sleep_algorithm_version=row.get('sleep_algorithm_version'),
-                    sleep_score_delta=self._parse_int(row.get('sleep_score_delta')),
-                    time_in_bed=self._parse_int(row.get('time_in_bed')),
-
-                    hr_data=self._parse_sequence_to_timestamped_list(row.get('heart_rate'), bedtime_start, 300),
-                    hrv_data=self._parse_sequence_to_timestamped_list(row.get('hrv'), bedtime_start, 300),
-                    readiness=self._parse_json_col(row.get('readiness')),
-                    readiness_score_delta=self._parse_float(row.get('readiness_score_delta')),
-                )
-                records.append(sleep)
-            except Exception as e:
-                logger.error(f"Error parsing sleep_session row: {e}")
-                continue
-        
-        self._upsert(SleepSession, records, ['id'])
+                bedtime_start = self.parse_datetime(row.get("bedtime_start"))
+                bedtime_end = self.parse_datetime(row.get("bedtime_end"))
+                day = self.row_day(row, "bedtime_end", "bedtime_start", "timestamp")
+                if day is None:
+                    self.warn("sleep_session", f"row {row.get('id') or '?'} skipped: no day")
+                    continue
+                records.append({
+                    "id": self.row_id(row),
+                    "day": day,
+                    "start_time": bedtime_start,
+                    "end_time": bedtime_end,
+                    "type": stype,
+                    "efficiency": self.parse_int(row.get("efficiency")),
+                    "latency": self.parse_int(row.get("latency")),
+                    "total_sleep_duration": self.parse_int(row.get("total_sleep_duration")),
+                    "deep_sleep_duration": self.parse_int(row.get("deep_sleep_duration")),
+                    "rem_sleep_duration": self.parse_int(row.get("rem_sleep_duration")),
+                    "light_sleep_duration": self.parse_int(row.get("light_sleep_duration")),
+                    "awake_time": self.parse_int(row.get("awake_time")),
+                    "average_heart_rate": self.parse_float(row.get("average_heart_rate")),
+                    "average_hrv": self.parse_int(row.get("average_hrv")),
+                    # digit strings anchored at bedtime_start
+                    "sleep_phase_5_min": self.digit_sequence(row.get("sleep_phase_5_min"), bedtime_start, 300),
+                    "sleep_phase_30_sec": self.digit_sequence(row.get("sleep_phase_30_sec"), bedtime_start, 30),
+                    "movement_30_sec": self.digit_sequence(row.get("movement_30_sec"), bedtime_start, 30),
+                    # sample objects anchored at their own timestamp/interval
+                    "hr_data": self.sample_series(row.get("heart_rate"), bedtime_start, 300),
+                    "hrv_data": self.sample_series(row.get("hrv"), bedtime_start, 300),
+                    "readiness": self.parse_json(row.get("readiness")),
+                    "average_breath": self.parse_float(row.get("average_breath")),
+                    "bedtime_end": bedtime_end,
+                    "bedtime_start": bedtime_start,
+                    "lowest_heart_rate": self.parse_int(row.get("lowest_heart_rate")),
+                    "low_battery_alert": self.parse_bool(row.get("low_battery_alert")),
+                    "period": self.parse_int(row.get("period")),
+                    "restless_periods": self.parse_int(row.get("restless_periods")),
+                    "sleep_algorithm_version": self.parse_str(row.get("sleep_algorithm_version")),
+                    "sleep_score_delta": self.parse_int(row.get("sleep_score_delta")),
+                    "readiness_score_delta": self.parse_float(row.get("readiness_score_delta")),
+                    "time_in_bed": self.parse_int(row.get("time_in_bed")),
+                })
+            except Exception as exc:
+                self.row_error("sleep_session", row, exc)
+        if skipped_deleted:
+            logger.info("sleep_session: skipped %d deleted row(s)", skipped_deleted)
+        return self.upsert(SleepSession, records, ["id"])
