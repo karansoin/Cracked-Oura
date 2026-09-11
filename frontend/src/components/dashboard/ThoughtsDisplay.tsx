@@ -2,32 +2,66 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, Terminal, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function ThoughtsDisplay({ thoughts }: { thoughts: any[] }) {
+/** One step of the advisor's agent trace as returned by the backend. */
+interface AgentStep {
+    step: number;
+    type: string;
+    tool?: string;
+    params?: unknown;
+    content?: unknown;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object';
+
+/**
+ * The backend uses LangChain's SQL agent, whose tools are `sql_db_query`,
+ * `sql_db_query_checker`, `sql_db_schema` and `sql_db_list_tables`. Only
+ * `sql_db_query` actually executes SQL; its input is either the raw query string
+ * or an object with a `query` field.
+ */
+const SQL_QUERY_TOOL = 'sql_db_query';
+
+const getSqlQuery = (step: AgentStep): string | null => {
+    if (typeof step.params === 'string') return step.params;
+    if (isRecord(step.params) && typeof step.params.query === 'string') return step.params.query;
+    return null;
+};
+
+const stringify = (value: unknown): string =>
+    typeof value === 'string' ? value : JSON.stringify(value, null, 2) ?? '';
+
+export function ThoughtsDisplay({ thoughts }: { thoughts: AgentStep[] }) {
     const [isOpen, setIsOpen] = useState(false);
 
-    // Find SQL query
-    const sqlStep = thoughts.find(t => t.tool === 'run_sql');
-    const sqlQuery = sqlStep?.params?.query;
+    // Every executed SQL query (an agent may run several)
+    const sqlQueries = thoughts
+        .filter(t => t.tool === SQL_QUERY_TOOL)
+        .map(t => ({ step: t.step, query: getSqlQuery(t) }))
+        .filter((q): q is { step: number; query: string } => !!q.query);
 
     return (
         <div className="w-full max-w-2xl bg-card border rounded-lg overflow-hidden text-sm mt-3">
             {/* SQL Query Preview (Always visible if exists) */}
-            {sqlQuery && (
-                <div className="bg-muted/30 p-3 border-b font-mono text-xs">
+            {sqlQueries.map(({ step, query }, i) => (
+                <div key={`sql-${step}-${i}`} className="bg-muted/30 p-3 border-b font-mono text-xs">
                     <div className="flex items-center gap-2 text-muted-foreground mb-2">
                         <Database className="h-3 w-3" />
-                        <span className="font-semibold">SQL Query Executed</span>
+                        <span className="font-semibold">
+                            SQL Query Executed{sqlQueries.length > 1 ? ` (${i + 1}/${sqlQueries.length})` : ''}
+                        </span>
                     </div>
                     <div className="text-blue-500 dark:text-blue-400 overflow-x-auto whitespace-pre-wrap bg-background p-2 rounded border">
-                        {sqlQuery}
+                        {query}
                     </div>
                 </div>
-            )}
+            ))}
 
             {/* Python Code Preview (Always visible if exists) */}
             {thoughts.filter(t => t.tool === 'run_python').map((step, i) => {
                 // Find the result (usually the next step)
                 const resultStep = thoughts.find(t => t.step === step.step + 1 && t.type === 'tool_result');
+                const code = isRecord(step.params) ? stringify(step.params.code ?? '') : stringify(step.params ?? '');
                 return (
                     <div key={i} className="bg-muted/30 p-3 border-b font-mono text-xs">
                         <div className="flex items-center gap-2 text-muted-foreground mb-2">
@@ -36,7 +70,7 @@ export function ThoughtsDisplay({ thoughts }: { thoughts: any[] }) {
                         </div>
                         <div className="space-y-2">
                             <div className="text-yellow-600 dark:text-yellow-400 overflow-x-auto whitespace-pre-wrap bg-background p-2 rounded border">
-                                {step.params?.code}
+                                {code}
                             </div>
                             {resultStep && (
                                 <div className="text-muted-foreground overflow-x-auto whitespace-pre-wrap bg-background/50 p-2 rounded border border-dashed">
@@ -74,9 +108,9 @@ export function ThoughtsDisplay({ thoughts }: { thoughts: any[] }) {
     );
 }
 
-function ThoughtStep({ step }: { step: any }) {
+function ThoughtStep({ step }: { step: AgentStep }) {
     const [isExpanded, setIsExpanded] = useState(false);
-    const content = typeof step.content === 'string' ? step.content : JSON.stringify(step.content, null, 2);
+    const content = stringify(step.content);
     const isLong = content.split('\n').length > 10;
 
     return (

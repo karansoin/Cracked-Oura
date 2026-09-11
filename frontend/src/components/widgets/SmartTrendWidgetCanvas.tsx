@@ -4,7 +4,7 @@ import { TrendChartCanvas } from './TrendChartCanvas';
 import { BarChartCanvas } from './BarChartCanvas';
 import { TableWidget } from './TableWidget';
 import type { WidgetInstance } from '@/types';
-import { subDays, subYears, format } from 'date-fns';
+import { subDays, subWeeks, subMonths, subYears, subHours, subMinutes, format, parseISO } from 'date-fns';
 
 import { isIntradayKey } from "@/lib/utils";
 import { aggregateDailySeries, normalizeTimeSeriesData, pickAutoAggregationInterval } from '@/lib/data-processing';
@@ -34,30 +34,37 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
         }
 
         const rangeType = widget.config.dateRange?.type || 'default';
-        const today = new Date().toISOString().split('T')[0];
+        // NOTE: `yyyy-MM-dd` strings must go through parseISO (local midnight), never
+        // `new Date(str)` (UTC midnight) - otherwise formatting back to a local date
+        // shifts the range by one day for users west of UTC.
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const todayDate = parseISO(today);
+        const selectedDate = parseISO(date);
 
         switch (rangeType) {
             case 'custom':
                 return {
-                    startDate: widget.config.dateRange?.startDate || format(subDays(new Date(date), 30), 'yyyy-MM-dd'),
+                    startDate: widget.config.dateRange?.startDate || format(subDays(selectedDate, 30), 'yyyy-MM-dd'),
                     endDate: widget.config.dateRange?.endDate || date
                 };
             case 'relative': {
                 const { value, unit, anchor } = widget.config.dateRange || {};
 
-                let end;
-                if (anchor === 'selected_date') {
-                    end = new Date(date);
-                } else {
-                    // Always use today (start of day) as anchor
-                    end = new Date(today);
-                }
+                // Anchor on the selected day, or on today (start of day).
+                const end = anchor === 'selected_date' ? selectedDate : todayDate;
 
                 if (value && unit) {
                     let start = end;
-                    if (unit === 'days') start = subDays(end, value);
-                    else if (unit === 'years') start = subYears(end, value);
+                    switch (unit) {
+                        case 'minutes': start = subMinutes(end, value); break;
+                        case 'hours': start = subHours(end, value); break;
+                        case 'days': start = subDays(end, value); break;
+                        case 'weeks': start = subWeeks(end, value); break;
+                        case 'months': start = subMonths(end, value); break;
+                        case 'years': start = subYears(end, value); break;
+                    }
 
+                    // Queries are date-granular, so hours/minutes still emit date-only strings.
                     return {
                         startDate: format(start, 'yyyy-MM-dd'),
                         endDate: format(end, 'yyyy-MM-dd')
@@ -71,20 +78,20 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
             }
             case 'to_today':
                 return {
-                    startDate: widget.config.dateRange?.startDate || format(subDays(new Date(today), 30), 'yyyy-MM-dd'),
+                    startDate: widget.config.dateRange?.startDate || format(subDays(todayDate, 30), 'yyyy-MM-dd'),
                     endDate: today
                 };
             case 'all':
                 return { startDate: undefined, endDate: undefined };
             case 'last_90':
-                return { startDate: format(subDays(new Date(today), 90), 'yyyy-MM-dd'), endDate: today };
+                return { startDate: format(subDays(todayDate, 90), 'yyyy-MM-dd'), endDate: today };
             case 'last_30':
-                return { startDate: format(subDays(new Date(today), 30), 'yyyy-MM-dd'), endDate: today };
+                return { startDate: format(subDays(todayDate, 30), 'yyyy-MM-dd'), endDate: today };
             default:
                 // Default to last 7 days relative to today for new widgets
-                return { startDate: format(subDays(new Date(today), 7), 'yyyy-MM-dd'), endDate: today };
+                return { startDate: format(subDays(todayDate, 7), 'yyyy-MM-dd'), endDate: today };
         }
-    }, [widget.config.dateRange, date, widget.config.dataKey]);
+    }, [widget.config.dateRange, date, widget.config.dataKey, chartType]);
 
     // Determine keys to fetch
     const keysToFetch = useMemo(() => {

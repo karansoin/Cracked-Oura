@@ -1,13 +1,57 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
+import fs from 'fs';
+import http from 'http';
 import { spawn, ChildProcess } from 'child_process';
 
-let mainWindow: BrowserWindow | null;
+let mainWindow: BrowserWindow | null = null;
 let pythonProcess: ChildProcess | null = null;
+// True when the backend was spawned in its own process group (dev mode, non-Windows),
+// so that killing the group also takes down uvicorn's --reload worker.
+let backendDetached = false;
 let tray: Tray | null = null;
 let isQuitting = false;
 
 const isDev = process.env.NODE_ENV === 'development';
+
+const BACKEND_PORT = 8000;
+const BACKEND_HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/api/health`;
+const BACKEND_READY_TIMEOUT_MS = 60_000;
+const BACKEND_POLL_INTERVAL_MS = 500;
+
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
+
+function errorMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+}
+
+// Debug logging helper. The file is truncated once it grows past MAX_LOG_BYTES so a
+// chatty backend cannot fill the user's Documents folder.
+function logToDesktop(message: string) {
+    try {
+        const logPath = path.join(app.getPath('documents'), 'cracked_oura_electron_debug.log');
+        const stats = fs.statSync(logPath, { throwIfNoEntry: false });
+        if (stats && stats.size > MAX_LOG_BYTES) {
+            fs.truncateSync(logPath, 0);
+            fs.appendFileSync(logPath, `[${new Date().toISOString()}] (log truncated: exceeded ${MAX_LOG_BYTES} bytes)\n`);
+        }
+        const timestamp = new Date().toISOString();
+        fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`);
+    } catch (e) {
+        console.error("Failed to write to log file", e);
+    }
+}
+
+/** Show the dashboard window, creating it first if it does not exist yet
+ *  (e.g. macOS `activate` can fire before `ready` has created it, or after `closed`). */
+function showOrCreateWindow() {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+        return;
+    }
+    createWindow();
+}
 
 function createTray() {
     // We are in shell/electron/main.ts (compiled to dist-electron/main.js)
@@ -37,14 +81,7 @@ function createTray() {
     const contextMenu = Menu.buildFromTemplate([
         {
             label: 'Open Dashboard',
-            click: () => {
-                if (mainWindow) {
-                    mainWindow.show();
-                    mainWindow.focus();
-                } else {
-                    createWindow();
-                }
-            }
+            click: showOrCreateWindow
         },
         { type: 'separator' },
         {
@@ -58,12 +95,7 @@ function createTray() {
 
     tray.setContextMenu(contextMenu);
 
-    tray.on('double-click', () => {
-        if (mainWindow) {
-            mainWindow.show();
-            mainWindow.focus();
-        }
-    });
+    tray.on('double-click', showOrCreateWindow);
 }
 
 function createWindow() {
@@ -71,8 +103,11 @@ function createWindow() {
         width: 1280,
         height: 800,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false, // For simple IPC now, can harden later
+            // The renderer is a plain web app: it never touches Node APIs, so run it
+            // fully isolated. (Verified: frontend/src has no require/process/window.electron.)
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
         },
         backgroundColor: '#0f1115', // Match our dark theme
         show: false, // Don't show until ready
@@ -89,7 +124,7 @@ function createWindow() {
     } else {
         logToDesktop(`Loading PROD File: ${prodPath}`);
         mainWindow.loadFile(prodPath).catch(err => {
-            logToDesktop(`FAILED to load file: ${err.message}`);
+            logToDesktop(`FAILED to load file: ${errorMessage(err)}`);
         });
     }
 
@@ -99,11 +134,11 @@ function createWindow() {
     });
 
     // Debug Renderer Crashes
-    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
         logToDesktop(`PAGE LOAD FAILED: ${errorCode} - ${errorDescription}`);
     });
 
-    mainWindow.webContents.on('render-process-gone', (event, details) => {
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
         logToDesktop(`Renderer Process GONE. Reason: ${details.reason}`);
     });
 
@@ -127,7 +162,7 @@ function getPythonPath(): string {
         // In macOS .app: Contents/Resources/backend/backend
         // In Windows/Linux: resources/backend/backend(.exe)
         const possiblePath = path.join(process.resourcesPath, 'backend', 'backend');
-        // On Windows it might have .exe extension, but child_process.spawn handles it if we don't specify extension? 
+        // On Windows it might have .exe extension, but child_process.spawn handles it if we don't specify extension?
         // Best to check specific platform or try specific paths.
         if (process.platform === 'win32') {
             return path.join(process.resourcesPath, 'backend', 'backend.exe');
@@ -141,7 +176,7 @@ function getPythonPath(): string {
     const binPath = path.join(venvRoot, 'bin', 'python'); // Mac/Linux
     const scriptsPath = path.join(venvRoot, 'Scripts', 'python.exe'); // Windows
 
-    // We can't easily check file existence synchronously in specific setups without 'fs', 
+    // We can't easily check file existence synchronously in specific setups without 'fs',
     // but we can try to rely on platform.
     if (process.platform === 'win32') {
         return scriptsPath;
@@ -149,16 +184,78 @@ function getPythonPath(): string {
     return binPath;
 }
 
-// Debug logging helper
-function logToDesktop(message: string) {
-    try {
-        const logPath = path.join(app.getPath('documents'), 'cracked_oura_electron_debug.log');
-        const timestamp = new Date().toISOString();
-        require('fs').appendFileSync(logPath, `[${timestamp}] ${message}\n`);
-    } catch (e) {
-        console.error("Failed to write to log file", e);
-    }
+// ---------------------------------------------------------------------------
+// Backend readiness
+// ---------------------------------------------------------------------------
+
+type HealthProbe =
+    | { kind: 'ok' }
+    | { kind: 'down' }               // nothing listening yet (connection refused / timeout)
+    | { kind: 'foreign'; detail: string }; // something answered, but not our backend
+
+/** One GET of /api/health. Our backend answers 200 with a JSON body. */
+function probeBackendHealth(): Promise<HealthProbe> {
+    return new Promise(resolve => {
+        const req = http.get(BACKEND_HEALTH_URL, { timeout: 2000 }, res => {
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', chunk => { body += chunk; });
+            res.on('end', () => {
+                if (res.statusCode !== 200) {
+                    resolve({ kind: 'foreign', detail: `HTTP ${res.statusCode}` });
+                    return;
+                }
+                try {
+                    JSON.parse(body);
+                    resolve({ kind: 'ok' });
+                } catch {
+                    resolve({ kind: 'foreign', detail: `non-JSON body: ${body.slice(0, 120)}` });
+                }
+            });
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            resolve({ kind: 'down' });
+        });
+        req.on('error', () => resolve({ kind: 'down' }));
+    });
 }
+
+/**
+ * Poll the backend's health endpoint until it is ready (or we time out). The window is
+ * created regardless - this only logs readiness and flags a port conflict clearly.
+ */
+async function waitForBackend(): Promise<boolean> {
+    const startedAt = Date.now();
+    let warnedForeign = false;
+
+    while (Date.now() - startedAt < BACKEND_READY_TIMEOUT_MS) {
+        const probe = await probeBackendHealth();
+
+        if (probe.kind === 'ok') {
+            logToDesktop(`Backend is healthy at ${BACKEND_HEALTH_URL} (after ${Date.now() - startedAt} ms)`);
+            return true;
+        }
+
+        if (probe.kind === 'foreign' && !warnedForeign) {
+            warnedForeign = true;
+            logToDesktop(
+                `ERROR: port ${BACKEND_PORT} is answering but does not look like the Cracked Oura backend ` +
+                `(${probe.detail}). Another process is probably using the port; the dashboard will not work ` +
+                `until it is stopped.`
+            );
+        }
+
+        await new Promise(resolve => setTimeout(resolve, BACKEND_POLL_INTERVAL_MS));
+    }
+
+    logToDesktop(`ERROR: backend did not become healthy within ${BACKEND_READY_TIMEOUT_MS / 1000} s`);
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Backend process
+// ---------------------------------------------------------------------------
 
 function startPythonBackend() {
     const exePath = getPythonPath();
@@ -167,22 +264,25 @@ function startPythonBackend() {
 
     if (isDev) {
         logToDesktop("Running in DEV mode");
-        // Run with uvicorn via python -m
+        // Run with uvicorn via python -m. On POSIX, start it in its own process group so
+        // that the --reload supervisor AND its worker child can be killed together on quit.
+        backendDetached = process.platform !== 'win32';
         pythonProcess = spawn(exePath, [
             '-m', 'uvicorn',
             'backend.src.api.main:app',
             '--host', '127.0.0.1',
-            '--port', '8000',
+            '--port', String(BACKEND_PORT),
             '--reload'
         ], {
             cwd: path.join(__dirname, '../../'),
-            stdio: 'inherit'
+            stdio: 'inherit',
+            detached: backendDetached
         });
     } else {
         logToDesktop("Running in PROD mode");
         // Production: Run the compiled executable directly
 
-        if (!require('fs').existsSync(exePath)) {
+        if (!fs.existsSync(exePath)) {
             logToDesktop(`CRITICAL ERROR: Backend executable NOT FOUND at ${exePath}`);
         } else {
             logToDesktop(`Backend executable confirmed at ${exePath}`);
@@ -193,11 +293,11 @@ function startPythonBackend() {
             pythonProcess = spawn(exePath, [], {
                 cwd: path.dirname(exePath), // Run from its own directory to find dependencies/relative files
                 stdio: ['ignore', 'pipe', 'pipe'], // Capture stdout/stderr
-                env: { ...process.env, PORT: '8000' } // Pass port if needed
+                env: { ...process.env, PORT: String(BACKEND_PORT) } // Pass port if needed
             });
             logToDesktop(`Backend process spawned with PID: ${pythonProcess ? pythonProcess.pid : 'NULL'}`);
-        } catch (spawnError: any) {
-            logToDesktop(`CRITICAL SPAWN ERROR: ${spawnError.message}`);
+        } catch (spawnError: unknown) {
+            logToDesktop(`CRITICAL SPAWN ERROR: ${errorMessage(spawnError)}`);
         }
     }
 
@@ -230,35 +330,59 @@ function startPythonBackend() {
     }
 }
 
+function stopPythonBackend() {
+    if (!pythonProcess) return;
+    const pid = pythonProcess.pid;
+
+    try {
+        pythonProcess.kill();
+    } catch (err) {
+        logToDesktop(`Failed to kill backend process: ${errorMessage(err)}`);
+    }
+
+    // Only a detached child is its own group leader; killing -pid on a non-detached child
+    // would signal Electron's own process group.
+    if (backendDetached && pid && process.platform !== 'win32') {
+        try {
+            process.kill(-pid, 'SIGTERM');
+            logToDesktop(`Sent SIGTERM to backend process group ${pid}`);
+        } catch (err) {
+            // ESRCH: the group is already gone - nothing to do.
+            logToDesktop(`Backend process group ${pid} not signalled: ${errorMessage(err)}`);
+        }
+    }
+
+    pythonProcess = null;
+}
+
+// ---------------------------------------------------------------------------
+// App lifecycle
+// ---------------------------------------------------------------------------
+
 app.on('ready', () => {
     startPythonBackend();
+    // Create the window immediately; the renderer retries its own requests while the
+    // backend comes up. Readiness (or a port conflict) is logged in the background.
     createWindow();
     createTray();
+    waitForBackend().catch(err => logToDesktop(`waitForBackend failed: ${errorMessage(err)}`));
 });
 
 app.on('window-all-closed', () => {
     // Do NOT quit. We want to stay alive in the tray.
     if (process.platform !== 'darwin') {
-        // On Windows/Linux we might want to quit if tray is not used, 
+        // On Windows/Linux we might want to quit if tray is not used,
         // but here we ARE using tray, so we stay alive.
-        // app.quit(); 
+        // app.quit();
     }
 });
 
-app.on('activate', () => {
-    if (mainWindow === null) {
-        createWindow();
-    } else {
-        mainWindow.show();
-    }
-});
+app.on('activate', showOrCreateWindow);
 
 app.on('before-quit', () => {
     isQuitting = true;
 });
 
 app.on('will-quit', () => {
-    if (pythonProcess) {
-        pythonProcess.kill();
-    }
+    stopPythonBackend();
 });

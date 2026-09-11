@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import type { WidgetInstance, Dashboard } from '@/types';
-import { useOuraData } from '@/hooks/useOuraData';
+import type { WidgetInstance, Dashboard, LayoutItem } from '@/types';
+import { useOuraData, type OuraDayData } from '@/hooks/useOuraData';
 import { useDashboardPersistence } from '@/hooks/useDashboardPersistence';
 import { format } from 'date-fns';
 
@@ -27,8 +27,10 @@ interface DashboardContextType {
 
     // Layout/Widget State (for active dashboard)
     widgets: WidgetInstance[];
-    layout: any[];
+    layout: LayoutItem[];
     updateActiveDashboard: (updates: Partial<Dashboard>) => void;
+    /** False until the saved layouts have been fetched; saves are skipped while false. */
+    isLayoutLoaded: boolean;
 
     // UI State
     isEditing: boolean;
@@ -49,7 +51,7 @@ interface DashboardContextType {
     // Data State
     selectedDate: Date;
     setSelectedDate: (date: Date) => void;
-    data: any;
+    data: OuraDayData;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -70,26 +72,22 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const [editingWidget, setEditingWidget] = useState<WidgetInstance | undefined>(undefined);
     const [originalWidget, setOriginalWidget] = useState<WidgetInstance | undefined>(undefined);
 
-    // Persistence
-    const { savedDashboards, savedActiveDashboardId, saveDashboards } = useDashboardPersistence();
+    // Persistence. When the saved dashboards arrive they replace the empty default and
+    // the saved active id is selected - done in the load promise callback rather than an
+    // effect so no state is set synchronously during an effect.
+    const { saveDashboards, isLoaded: isLayoutLoaded } = useDashboardPersistence({
+        onLoaded: ({ dashboards: saved, activeDashboardId: savedActiveId }) => {
+            if (saved.length === 0) return;
+            setDashboards(saved);
+            setActiveDashboardId(savedActiveId || saved[0].id);
+        }
+    });
 
     // Data Fetching
     const dateString = format(selectedDate, 'yyyy-MM-dd');
     const data = useOuraData(dateString);
 
     // --- Effects ---
-
-    // Load saved state
-    useEffect(() => {
-        if (savedDashboards && savedDashboards.length > 0) {
-            setDashboards(savedDashboards);
-            if (savedActiveDashboardId) {
-                setActiveDashboardId(savedActiveDashboardId);
-            } else {
-                setActiveDashboardId(savedDashboards[0].id);
-            }
-        }
-    }, [savedDashboards, savedActiveDashboardId]);
 
     // Resize trigger on panel change
     useEffect(() => {
@@ -180,7 +178,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             };
 
             const newWidgets = [...widgets, newWidget];
-            const newLayout = [...layout, {
+            const newLayout: LayoutItem[] = [...layout, {
                 i: newId,
                 x: 0,
                 y: Infinity,
@@ -250,6 +248,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             widgets,
             layout,
             updateActiveDashboard: handleUpdateActiveDashboard,
+            isLayoutLoaded,
             isEditing,
             setIsEditing,
             activePanel,
@@ -271,6 +270,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- context hook lives with its provider
 export function useDashboard() {
     const context = useContext(DashboardContext);
     if (context === undefined) {

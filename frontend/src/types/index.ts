@@ -12,7 +12,19 @@ export interface WidgetConfig {
         unit?: 'days' | 'weeks' | 'months' | 'hours' | 'minutes' | 'years';
         anchor?: 'today' | 'selected_date';
     };
-    [key: string]: any;
+    unit?: string;
+    [key: string]: unknown;
+}
+
+/** One react-grid-layout entry; `i` is the widget id. */
+export interface LayoutItem {
+    i: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    moved?: boolean;
+    static?: boolean;
 }
 
 export interface WidgetInstance {
@@ -39,5 +51,5 @@ export interface Dashboard {
     id: string;
     name: string;
     widgets: WidgetInstance[];
-    layout: any[];
+    layout: LayoutItem[];
 }

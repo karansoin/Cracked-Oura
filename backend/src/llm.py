@@ -1,111 +1,201 @@
-import json
-from typing import List, Dict, Any
-from langchain_ollama import ChatOllama
-from langchain_community.utilities import SQLDatabase
-from langchain_community.agent_toolkits import create_sql_agent
-from langchain_core.callbacks import StreamingStdOutCallbackHandler
-from backend.src.config import config_manager
-import os
-import os
+"""AI Health Analyst.
 
-class DataAnalyst:
-    def __init__(self):
-        cfg = config_manager.get_config()
-        
-        # 1. Initialize LLM
-        self.llm = ChatOllama(
-            base_url=cfg.get("llm_host", "http://localhost:11434"),
-            model=cfg.get("llm_model", "llama3.1"),
-            temperature=0,
-            streaming=True,
-            callbacks=[StreamingStdOutCallbackHandler()]
-        )
-        
-        # 2. Initialize Database
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        db_path = os.path.join(base_dir, "oura_database.db")
-        self.db = SQLDatabase.from_uri(f"sqlite:///{db_path}")
+A tool-calling agent that answers natural-language questions by running
+read-only SQL against the local Oura database.
 
-        # 3. Initialize Tools
-        # Safe Subclass to prevent hallucinations
-        # 3. Initialize Tools
-        # Python tools removed by user request
-        self.python_tool = None
-        
-        # 4. System Prompt
-        from datetime import date
-        today = date.today().strftime("%Y-%m-%d")
-        
-        self.system_message = f"""You are an expert Oura Ring Data Analyst.
-You have access to a SQLite database with tables: sleep, activity, readiness, resilience, sleep_session, etc.
-
-CRITICAL RULES:
-1. **SQLite Only**: Use `strftime('%Y-%m-%d', day)` for dates.
-2. **Ambiguous Columns**: ALWAYS use table prefixes (e.g., `sleep.score`, `activity.steps`).
-3. **Data Truth**: Trust the data. If it says 0, it is 0.
-4. **Date Handling**: Today is {today}.
-5. **No Hallucination**: Do not output 'Action:' and 'Final Answer:' in the same response.
-
-
-FORMAT INSTRUCTIONS:
-Question: input question
-Thought: thought
-Action: [sql_db_query, sql_db_schema, sql_db_list_tables, sql_db_query_checker]
-Action Input: input
-Observation: result
-...
-Final Answer: answer
+Design notes
+------------
+* The database is opened READ-ONLY (SQLite ``mode=ro``), so a hallucinated
+  ``DELETE`` can never damage the user's data.
+* The model is configurable: a local Ollama server (default, fully offline)
+  or any OpenAI-compatible endpoint (LM Studio, llama.cpp server, OpenRouter,
+  OpenAI itself).  Nothing is sent anywhere unless the user configures a
+  remote endpoint.
+* Conversation history is passed to the model so follow-up questions work.
+* ``chat`` is synchronous and CPU/network bound; callers must run it in a
+  worker thread (see ``routes.py``) so the API event loop is never blocked.
 """
 
-    def chat(self, history: List[Dict[str, str]]) -> Dict[str, Any]:
-        """
-        Invokes the LangChain SQL Agent.
-        """
-        user_query = history[-1]["content"] if history else ""
-        thoughts = []
-        
+from __future__ import annotations
+
+import logging
+import os
+from datetime import date
+from typing import Any, Dict, List, Optional
+
+from backend.src.config import config_manager
+from backend.src.database import DB_PATH
+
+logger = logging.getLogger("DataAnalyst")
+
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+DEFAULT_OLLAMA_MODEL = "llama3.1:latest"
+
+SCHEMA_NOTES = """
+Tables (dates are ISO strings; durations are SECONDS unless noted):
+- sleep(day, score, contributors JSON{deep_sleep,efficiency,latency,rem_sleep,restfulness,timing,total_sleep}, average_spo2, breathing_disturbance_index, recommendation, status, optimal_bedtime JSON)
+- readiness(day, score, temperature_deviation, temperature_trend_deviation, contributors JSON{activity_balance,body_temperature,hrv_balance,previous_day_activity,previous_night,recovery_index,resting_heart_rate,sleep_balance}, stress_high, recovery_high, day_summary)
+- activity(day, score, steps, total_calories, active_calories, average_met, equivalent_walking_distance, high_activity_time, medium_activity_time, low_activity_time, sedentary_time, resting_time, non_wear_time, inactivity_alerts, target_calories, target_meters, contributors JSON, class_5_min JSON, met JSON, stress JSON)
+- resilience(day, level, sleep_recovery, daytime_recovery, stress)
+- sleep_session(id, day, type in ['long_sleep','sleep','late_nap','rest'], bedtime_start, bedtime_end, total_sleep_duration, deep_sleep_duration, rem_sleep_duration, light_sleep_duration, awake_time, latency, efficiency, average_heart_rate, lowest_heart_rate, average_hrv, average_breath, time_in_bed, restless_periods, hr_data JSON, hrv_data JSON, sleep_phase_5_min JSON)
+- workout(id, day, start_time, end_time, activity, calories, distance, intensity, label, source)
+- meditation(id, day, start_time, end_time, type, mood)
+- heart_rate(timestamp, bpm, source)   -- all-day samples
+- temperature(timestamp, skin_temp)
+- ring_battery(timestamp, level, charging, in_charger)
+- cardiovascular_age(day, vascular_age)
+- vo2max(day, timestamp, vo2_max)
+- tag(id, start_time, end_time, tag_type_code, comment)
+Use the sleep_session row with type='long_sleep' for the main night's sleep.
+Extract JSON keys with json_extract(col, '$.key'). Use date(day) / strftime for date math.
+"""
+
+
+def _build_llm(cfg: Dict[str, Any]):
+    provider = (cfg.get("llm_provider") or "ollama").lower()
+    model = cfg.get("llm_model") or DEFAULT_OLLAMA_MODEL
+    if provider in ("openai", "openai_compatible", "openai-compatible"):
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            base_url=cfg.get("llm_base_url") or None,
+            api_key=cfg.get("llm_api_key") or "not-set",
+            model=model,
+            temperature=0,
+        )
+    from langchain_ollama import ChatOllama
+
+    return ChatOllama(
+        base_url=cfg.get("llm_host") or DEFAULT_OLLAMA_HOST,
+        model=model,
+        temperature=0,
+    )
+
+
+def _read_only_db():
+    from langchain_community.utilities import SQLDatabase
+
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError("No database yet. Import your Oura data first.")
+    # SQLite URI form so we can pass mode=ro (the file must already exist).
+    uri = f"sqlite:///file:{DB_PATH}?mode=ro&uri=true"
+    return SQLDatabase.from_uri(uri, sample_rows_in_table_info=2)
+
+
+def _to_lc_messages(history: List[Dict[str, str]]):
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    out = []
+    for m in history:
+        role = (m.get("role") or "user").lower()
+        content = m.get("content") or ""
+        if not content:
+            continue
+        out.append(AIMessage(content) if role == "assistant" else HumanMessage(content))
+    return out
+
+
+class DataAnalyst:
+    """One instance per request is fine; construction is cheap."""
+
+    def __init__(self, cfg: Optional[Dict[str, Any]] = None):
+        self.cfg = cfg or config_manager.get_config()
+        today = date.today().isoformat()
+        self.system_prompt = (
+            "You are an expert analyst of the user's own Oura Ring data stored in a local SQLite database. "
+            f"Today is {today}. Always inspect the schema or run sql_db_query with SELECT statements to get real numbers; "
+            "never invent values. Prefer aggregate queries with clear column aliases. Round results sensibly, "
+            "convert seconds to hours/minutes for durations, and explain briefly what the numbers mean for the user. "
+            "If the database has no rows for the period, say so plainly.\n" + SCHEMA_NOTES
+        )
+
+    def chat(self, history: List[Dict[str, str]], max_history: int = 12) -> Dict[str, Any]:
+        """Run the agent for the latest user message with prior turns as context."""
+        history = [m for m in history if m.get("content")]
+        if not history:
+            return {"response": "Ask me a question about your data.", "thoughts": []}
+
+        thoughts: List[Dict[str, Any]] = []
         try:
-            agent_executor = create_sql_agent(
-                llm=self.llm,
-                db=self.db,
-                extra_tools=[],
-                agent_type="zero-shot-react-description",
-                verbose=True,
-                prefix=self.system_message,
-                agent_executor_kwargs={"handle_parsing_errors": True}
-            )
-        
-            response = agent_executor.invoke(
-                {"input": user_query},
-                return_only_outputs=False,
-            )
-            
-            # Parse Intermediate Steps
-            steps = response.get("intermediate_steps", [])
-            for i, (action, observation) in enumerate(steps):
-                thoughts.append({
-                    "step": i * 2 + 1,
-                    "type": "tool_call",
-                    "tool": action.tool,
-                    "params": action.tool_input,
-                    "content": action.log 
-                })
-                thoughts.append({
-                    "step": i * 2 + 2,
-                    "type": "tool_result",
-                    "content": str(observation)
-                })
-            
-            final_answer = response.get("output", "I couldn't generate an answer.")
-            
+            from langchain.agents import create_agent
+            from langchain_community.agent_toolkits import SQLDatabaseToolkit
+
+            llm = _build_llm(self.cfg)
+            db = _read_only_db()
+            tools = SQLDatabaseToolkit(db=db, llm=llm).get_tools()
+            agent = create_agent(llm, tools, system_prompt=self.system_prompt)
+
+            messages = _to_lc_messages(history[-max_history:])
+            result = agent.invoke({"messages": messages}, config={"recursion_limit": 40})
+
+            final = ""
+            step = 0
+            for msg in result.get("messages", []):
+                mtype = getattr(msg, "type", "")
+                if mtype == "ai":
+                    calls = getattr(msg, "tool_calls", None) or []
+                    for call in calls:
+                        step += 1
+                        thoughts.append(
+                            {
+                                "step": step,
+                                "type": "tool_call",
+                                "tool": call.get("name"),
+                                "params": call.get("args"),
+                                "content": str(call.get("args")),
+                            }
+                        )
+                    if not calls and msg.content:
+                        final = msg.content if isinstance(msg.content, str) else str(msg.content)
+                elif mtype == "tool":
+                    step += 1
+                    thoughts.append(
+                        {
+                            "step": step,
+                            "type": "tool_result",
+                            "tool": getattr(msg, "name", None),
+                            "content": msg.content if isinstance(msg.content, str) else str(msg.content),
+                        }
+                    )
+
+            if not final:
+                final = "I ran the analysis but could not produce a final answer. Try rephrasing the question."
+            return {"response": final, "thoughts": thoughts}
+
+        except Exception as e:  # surfaced to the UI on purpose
+            logger.exception("Agent error")
+            text = str(e)
+            hint = ""
+            lowered = text.lower()
+            if "connect" in lowered and ("11434" in text or "refused" in lowered):
+                hint = " (Is Ollama running? Configure the LLM host/model in Settings → AI Analyst.)"
+            elif "does not support tools" in lowered:
+                hint = " (This model cannot call tools. Pick a tool-capable model such as llama3.1, llama3.2, qwen2.5 or mistral-nemo.)"
+            elif "not found" in lowered and "model" in lowered:
+                hint = " (Pull the model first, e.g. `ollama pull llama3.2:3b`, or pick another in Settings.)"
             return {
-                "response": final_answer,
-                "thoughts": thoughts
+                "response": f"I encountered an error: {text}{hint}",
+                "thoughts": thoughts + [{"step": 99, "type": "error", "content": text}],
             }
-            
-        except Exception as e:
-            print(f"Agent Error: {e}")
-            return {
-                "response": f"I encountered an error: {str(e)}",
-                "thoughts": thoughts + [{"step": 99, "type": "error", "content": str(e)}]
-            }
+
+
+def check_llm_connection(cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Cheap connectivity probe used by the Settings UI."""
+    cfg = cfg or config_manager.get_config()
+    provider = (cfg.get("llm_provider") or "ollama").lower()
+    wanted = cfg.get("llm_model") or DEFAULT_OLLAMA_MODEL
+    try:
+        if provider == "ollama":
+            import httpx
+
+            host = (cfg.get("llm_host") or DEFAULT_OLLAMA_HOST).rstrip("/")
+            r = httpx.get(f"{host}/api/tags", timeout=4.0)
+            r.raise_for_status()
+            models = [m.get("name") for m in r.json().get("models", [])]
+            available = any(m == wanted or m.split(":")[0] == wanted.split(":")[0] for m in models)
+            return {"ok": True, "provider": "ollama", "models": models, "model": wanted, "model_available": available}
+        llm = _build_llm(cfg)
+        llm.invoke("Reply with the single word OK.")
+        return {"ok": True, "provider": provider, "models": [], "model": wanted, "model_available": True}
+    except Exception as e:
+        return {"ok": False, "provider": provider, "model": wanted, "error": str(e)}

@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 
 export interface DailyScore {
     score: number;
-    contributors: any;
+    contributors: Record<string, number | null>;
     activity_balance?: number;
     body_temperature?: number;
     hrv_balance?: number;
@@ -23,72 +23,86 @@ export interface SleepSession {
     deep_sleep_duration: number;
     rem_sleep_duration: number;
     light_sleep_duration: number;
+    total_sleep_duration?: number;
     awake_time: number;
     start_time: string;
-    hr_data: any;
-    hrv_data: any;
+    hr_data: unknown;
+    hrv_data: unknown;
     type?: string;
+    [key: string]: unknown;
 }
 
 export interface ResilienceData {
     day: string;
     level: string;
-    contributors: any;
+    contributors: Record<string, number | null>;
     sleep_recovery?: number;
     daytime_recovery?: number;
     stress?: number;
 }
 
+type Section = Record<string, unknown>;
+
+/** Shape of `GET /api/days/{date}` (loosely typed - columns vary by export). */
+export interface DailyPayload {
+    sleep?: Section & {
+        total_sleep_duration?: number;
+        average_spo2?: number;
+        breathing_disturbance_index?: number;
+    };
+    activity?: Section & { steps?: number };
+    readiness?: Section;
+    resilience?: ResilienceData;
+    sleep_sessions?: SleepSession[];
+    [key: string]: unknown;
+}
+
+const RETRY_DELAY_MS = 1000;
+const MAX_ATTEMPTS = 10;
+
 export const useOuraData = (date: string) => {
-    const [data, setData] = useState<any>(null);
-    const [history, setHistory] = useState<{ sleep: any[], activity: any[], readiness: any[] }>({ sleep: [], activity: [], readiness: [] });
+    const [data, setData] = useState<DailyPayload | null>(null);
 
     useEffect(() => {
         if (!date) return;
 
-        // Fetch full daily dump with retry
+        // Fetch full daily dump with retry (the backend may still be starting up)
         let attempts = 0;
-        const maxAttempts = 10;
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
 
         const fetchData = () => {
             api.getDailyData(date)
-                .then(data => setData(data))
+                .then((payload: DailyPayload) => {
+                    if (!cancelled) setData(payload);
+                })
                 .catch(() => {
+                    if (cancelled) return;
                     attempts++;
-                    if (attempts < maxAttempts) {
-                        setTimeout(fetchData, 1000);
+                    if (attempts < MAX_ATTEMPTS) {
+                        timer = setTimeout(fetchData, RETRY_DELAY_MS);
                     }
                 });
         };
         fetchData();
 
-        // Fetch history for heatmaps (last 365 days)
-        const oneYearAgo = new Date(new Date(date).setDate(new Date(date).getDate() - 365)).toISOString().split('T')[0];
-        Promise.all([
-            api.getQuery('sleep.score', oneYearAgo, date),
-            api.getQuery('activity.score', oneYearAgo, date),
-            api.getQuery('readiness.score', oneYearAgo, date)
-        ]).then(([sleepData, activityData, readinessData]) => {
-            setHistory({
-                sleep: sleepData,
-                activity: activityData,
-                readiness: readinessData
-            });
-        }).catch(err => console.error("Error fetching history:", err));
-
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+        };
     }, [date]);
 
-
+    const sleepSessions = data?.sleep_sessions ?? [];
 
     return {
         // Pass through the raw data structure but add formatted helpers where needed
-        ...data,
+        ...(data ?? {}),
         // Adapter: Find primary sleep session (longest one) for widgets expecting singular 'sleep_session'
-        sleep_session: data?.sleep_sessions?.reduce((longest: any, current: any) => {
+        sleep_session: sleepSessions.reduce<SleepSession | null>((longest, current) => {
             if (!longest) return current;
             return (current.total_sleep_duration || 0) > (longest.total_sleep_duration || 0) ? current : longest;
         }, null),
-        sleepSessions: data?.sleep_sessions || [],
+        sleepSessions,
         readiness: data?.readiness ? {
             ...data.readiness,
         } : null,
@@ -103,6 +117,7 @@ export const useOuraData = (date: string) => {
             breathing_disturbance_index: data.sleep.breathing_disturbance_index
         } : null,
         resilience: data?.resilience ? [data.resilience] : [], // Adapter for array expectation if needed
-        history
     };
 };
+
+export type OuraDayData = ReturnType<typeof useOuraData>;

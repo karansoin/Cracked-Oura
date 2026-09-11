@@ -1,20 +1,24 @@
 import { useState, useEffect } from 'react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 
 interface JSONWidgetProps {
-    data: any;
+    data: unknown;
     date?: string;
     fetchFullDump?: boolean;
 }
 
-const JsonNode = ({ label, data, level = 0 }: { label: string, data: any, level?: number }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const isObject = data !== null && typeof data === 'object';
-    const isEmpty = isObject && Object.keys(data).length === 0;
+const asObject = (value: unknown): Record<string, unknown> | null =>
+    value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 
-    if (!isObject) {
+const JsonNode = ({ label, data, level = 0 }: { label: string, data: unknown, level?: number }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const obj = asObject(data);
+    const isEmpty = obj !== null && Object.keys(obj).length === 0;
+
+    if (obj === null) {
         let color = "text-green-400"; // Strings
         if (typeof data === 'number') color = "text-blue-400";
         if (typeof data === 'boolean') color = "text-purple-400";
@@ -49,7 +53,7 @@ const JsonNode = ({ label, data, level = 0 }: { label: string, data: any, level?
 
             {isOpen && (
                 <div className="border-l border-border ml-2 pl-2 my-1">
-                    {Object.entries(data).map(([key, value]) => (
+                    {Object.entries(obj).map(([key, value]) => (
                         <JsonNode key={key} label={key} data={value} level={0} />
                     ))}
                 </div>
@@ -58,29 +62,35 @@ const JsonNode = ({ label, data, level = 0 }: { label: string, data: any, level?
     );
 };
 
+/** Result of the last detailed-day fetch, tagged with the date it belongs to. */
+interface FetchedDump {
+    date: string;
+    data: unknown;
+}
+
 export function JSONWidget({ data, date, fetchFullDump }: JSONWidgetProps) {
-    const [fullData, setFullData] = useState<any>(null);
-    const [loading, setLoading] = useState(false);
+    const [fetched, setFetched] = useState<FetchedDump | null>(null);
 
     useEffect(() => {
-        if (fetchFullDump && date) {
-            setLoading(true);
-            fetch(`http://localhost:8000/api/days/${date}?include_details=true`)
-                .then(res => res.json())
-                .then(json => {
-                    setFullData(json);
-                    setLoading(false);
-                })
-                .catch(err => {
-                    console.error("Error fetching full dump:", err);
-                    setLoading(false);
-                });
-        } else {
-            setFullData(null);
-        }
+        if (!fetchFullDump || !date) return;
+
+        let cancelled = false;
+        api.getDailyDataDetailed(date)
+            .then(json => {
+                if (!cancelled) setFetched({ date, data: json });
+            })
+            .catch(err => {
+                console.error("Error fetching full dump:", err);
+                if (!cancelled) setFetched({ date, data: null });
+            });
+
+        return () => { cancelled = true; };
     }, [date, fetchFullDump]);
 
-    const displayData = fetchFullDump ? fullData : data;
+    const wantsFullDump = !!(fetchFullDump && date);
+    // Loading is derived: we want a dump and the one we hold is for a different date.
+    const loading = wantsFullDump && fetched?.date !== date;
+    const displayData = asObject(wantsFullDump ? fetched?.data : data);
 
     if (loading) {
         return (

@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import date, datetime
-from sqlalchemy import String, Float, Date, DateTime, JSON, Text, Integer, Boolean
+from sqlalchemy import String, Float, Date, DateTime, JSON, Text, Integer, Boolean, UniqueConstraint, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -198,3 +198,46 @@ class CardiovascularAge(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     day: Mapped[date] = mapped_column(Date, unique=True, index=True)
     vascular_age: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
+# --- Ring (direct BLE) ---
+
+class RingEvent(Base):
+    """Raw history event pulled from the ring over BLE (lossless)."""
+
+    __tablename__ = "ring_event"
+    __table_args__ = (
+        UniqueConstraint("serial", "tag", "ring_ts", "body_hex", name="uq_ring_event"),
+        Index("ix_ring_event_serial_ts", "serial", "ring_ts"),
+        Index("ix_ring_event_unix", "unix_time"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    serial: Mapped[str] = mapped_column(String, index=True)
+    tag: Mapped[int] = mapped_column(Integer, index=True)
+    ring_ts: Mapped[int] = mapped_column(Integer)
+    body_hex: Mapped[str] = mapped_column(String)
+    decoded: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    unix_time: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class RingState(Base):
+    """Per-ring sync bookkeeping (cursor, time anchor, identity)."""
+
+    __tablename__ = "ring_state"
+
+    serial: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    hardware_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    firmware_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    mac: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    next_cursor: Mapped[int] = mapped_column(Integer, default=0)
+    anchor_ring_ts: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    anchor_unix: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    anchor_precise: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_event_unix: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    battery_percent: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    battery_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    events_total: Mapped[int] = mapped_column(Integer, default=0)

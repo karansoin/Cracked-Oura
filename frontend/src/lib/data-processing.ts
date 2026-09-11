@@ -4,6 +4,18 @@ import type { TimeSeriesPoint, NormalizedData } from '@/types/data';
 export type AggregationInterval = 'week' | 'month' | 'year';
 export type AggregationMethod = 'avg' | 'median' | 'sum' | 'last';
 
+/** A raw row from the query API: a date plus arbitrary per-path columns. */
+export interface RawSeriesRow {
+    date?: string;
+    [key: string]: unknown;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object';
+
+/** Date portion (`yyyy-MM-dd`) of a row's date, whether or not it carries a time. */
+const dayOf = (row: RawSeriesRow): string => (row.date ?? '').split('T')[0];
+
 function toNumber(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string' && value.trim() !== '') {
@@ -119,7 +131,7 @@ export function aggregateDailySeries(
 }
 
 export function normalizeTimeSeriesData(
-    data: any[],
+    data: RawSeriesRow[],
     primaryKey: string,
     selectedDayIndex: number | null = null,
     requestedStart?: string,
@@ -130,28 +142,27 @@ export function normalizeTimeSeriesData(
     }
 
     // 1. Detect Data Type (Daily vs Intraday)
-    // 1. Detect Data Type (Daily vs Intraday)
     let isIntraday = false;
     let isFlatIntraday = false;
 
     if (data && data.length > 0) {
-        let firstVal = data[0][primaryKey];
+        let firstVal: unknown = data[0][primaryKey];
         if (typeof firstVal === 'string') {
-            try { firstVal = JSON.parse(firstVal); } catch (e) { }
+            try { firstVal = JSON.parse(firstVal); } catch { /* not JSON */ }
         }
-        const isIntradayNested = Array.isArray(firstVal) || (typeof firstVal === 'object' && firstVal !== null && Array.isArray((firstVal as any).items));
-        isFlatIntraday = data[0]?.date?.includes('T');
+        const isIntradayNested = Array.isArray(firstVal) || (isRecord(firstVal) && Array.isArray(firstVal.items));
+        isFlatIntraday = !!data[0]?.date?.includes('T');
         isIntraday = isIntradayNested || isFlatIntraday;
     }
 
     // --- CASE 1: DAILY DATA ---
     if (!isIntraday) {
         // Sort data by date
-        const sorted = [...(data || [])].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const sorted = [...(data || [])].sort((a, b) => new Date(a.date ?? '').getTime() - new Date(b.date ?? '').getTime());
 
         // Determine boundaries
-        let startDateStr = sorted.length > 0 ? sorted[0].date.split('T')[0] : (requestedStart || new Date().toISOString().split('T')[0]);
-        let endDateStr = sorted.length > 0 ? sorted[sorted.length - 1].date.split('T')[0] : (requestedEnd || new Date().toISOString().split('T')[0]);
+        let startDateStr = sorted.length > 0 ? dayOf(sorted[0]) : (requestedStart || new Date().toISOString().split('T')[0]);
+        let endDateStr = sorted.length > 0 ? dayOf(sorted[sorted.length - 1]) : (requestedEnd || new Date().toISOString().split('T')[0]);
 
         // Override with requested dates if provided
         if (requestedStart) startDateStr = requestedStart;
@@ -167,13 +178,14 @@ export function normalizeTimeSeriesData(
             if (dateStr > endDateStr) break;
 
             const item = sorted[dataIndex];
-            const itemDateStr = item ? (item.date.includes('T') ? item.date.split('T')[0] : item.date) : '';
+            const itemDateStr = item ? dayOf(item) : '';
 
             if (item && itemDateStr === dateStr) {
-                filledData.push(item);
+                // Rows pass through untouched (charts read `[primaryKey]`, not `value`).
+                filledData.push(item as TimeSeriesPoint);
                 dataIndex++;
                 // Handle duplicates if any
-                while (sorted[dataIndex] && (sorted[dataIndex].date.includes('T') ? sorted[dataIndex].date.split('T')[0] : sorted[dataIndex].date) === dateStr) {
+                while (sorted[dataIndex] && dayOf(sorted[dataIndex]) === dateStr) {
                     dataIndex++;
                 }
             } else {
@@ -188,7 +200,7 @@ export function normalizeTimeSeriesData(
                     date: dateStr,
                     value: null,
                     [primaryKey]: null
-                } as any);
+                });
             }
 
             // Increment day safely
@@ -199,18 +211,18 @@ export function normalizeTimeSeriesData(
     }
 
     // --- CASE 2: INTRADAY DATA ---
-    let rawItems: any[] = [];
+    let rawItems: unknown[] | undefined = [];
     let targetIndex = 0;
-    let dayData: any = {};
+    let dayData: RawSeriesRow = {};
 
     if (isFlatIntraday) {
         // Flat data (e.g. heart_rate from useMultiOuraQuery)
-        rawItems = data.map((d: any) => {
-            const val = d[primaryKey];
+        rawItems = data.map((d): Record<string, unknown> | null => {
+            const val: unknown = d[primaryKey];
             if (val === undefined || val === null) return null;
-            if (typeof val === 'object') return { ...val, timestamp: d.date };
+            if (isRecord(val)) return { ...val, timestamp: d.date };
             return { value: val, timestamp: d.date };
-        }).filter(Boolean);
+        }).filter((item): item is Record<string, unknown> => item !== null);
 
         dayData = data[data.length - 1] || {};
     } else {
@@ -220,11 +232,12 @@ export function normalizeTimeSeriesData(
         if (targetIndex >= data.length) targetIndex = data.length - 1;
 
         dayData = data[targetIndex];
-        let val = dayData[primaryKey];
+        let val: unknown = dayData[primaryKey];
         if (typeof val === 'string') {
-            try { val = JSON.parse(val); } catch (e) { }
+            try { val = JSON.parse(val); } catch { /* not JSON */ }
         }
-        rawItems = Array.isArray(val) ? val : (val as any)?.items;
+        const nestedItems: unknown = isRecord(val) ? val.items : undefined;
+        rawItems = Array.isArray(val) ? val : (Array.isArray(nestedItems) ? nestedItems : undefined);
     }
 
     if (!rawItems || !Array.isArray(rawItems)) {
@@ -233,25 +246,26 @@ export function normalizeTimeSeriesData(
 
     // Process Items: Linear Grid Generation
     // We only support timestamped data now.
-    const hasExplicitTimestamp = rawItems[0] && typeof rawItems[0] === 'object' && 'timestamp' in rawItems[0];
+    const hasExplicitTimestamp = isRecord(rawItems[0]) && 'timestamp' in rawItems[0];
     const chartData: TimeSeriesPoint[] = [];
 
     if (hasExplicitTimestamp) {
         // 1. Parse all items and sort by time
-        const itemsWithTime = rawItems.map((val: any) => {
+        const itemsWithTime = rawItems.map((val: unknown) => {
             let time = 0;
-            if (val && typeof val === 'object' && val.timestamp) {
+            if (isRecord(val) && typeof val.timestamp === 'string' && val.timestamp) {
                 time = parseISO(val.timestamp).getTime();
             }
 
-            // Extract numeric value
-            let numericVal = val;
-            if (typeof val === 'object' && val !== null) {
+            // Extract numeric value (samples carry it under one of a few field names)
+            let numericVal: unknown = val;
+            if (isRecord(val)) {
                 numericVal = val.bpm ?? val.score ?? val.value ?? val.average ?? null;
             }
 
-            return { time, val: numericVal, original: val };
-        }).filter(i => i.time > 0).sort((a: any, b: any) => a.time - b.time);
+            // Passed through as-is (previously untyped); charts treat it as a number.
+            return { time, val: numericVal as number | null, original: val };
+        }).filter(i => i.time > 0).sort((a, b) => a.time - b.time);
 
         if (itemsWithTime.length > 0 || (requestedStart && requestedEnd)) {
             // Determine start/end times
@@ -340,7 +354,7 @@ export function normalizeTimeSeriesData(
     return {
         data: chartData,
         isIntraday: true,
-        currentDay: dayData.date,
+        currentDay: typeof dayData.date === 'string' ? dayData.date : undefined,
         currentIndex: targetIndex,
         totalDays: data.length
     };

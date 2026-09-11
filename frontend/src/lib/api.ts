@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:8000';
+export const BASE_URL = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://127.0.0.1:8000';
 
 export interface AutomationStatusResponse {
     status: 'idle' | 'login_needed' | 'otp_needed' | 'logged_in' | 'exporting' | 'ready_to_download' | 'downloading' | 'completed' | 'error';
@@ -93,6 +93,13 @@ export const api = {
     getDailyData: async (date: string) => {
         const res = await fetch(`${BASE_URL}/api/days/${date}`);
         if (!res.ok) throw new Error('Failed to fetch daily data');
+        return res.json();
+    },
+
+    /** Full day payload including the large intraday detail columns. */
+    getDailyDataDetailed: async (date: string) => {
+        const res = await fetch(`${BASE_URL}/api/days/${date}?include_details=true`);
+        if (!res.ok) throw new Error('Failed to fetch detailed daily data');
         return res.json();
     },
 
