@@ -1,7 +1,7 @@
 
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 # --- Daily Summaries ---
 
