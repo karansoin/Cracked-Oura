@@ -1,115 +1,84 @@
 <div align="center">
   <img src="frontend/public/icon.png" alt="Cracked Oura Logo" width="128">
   <h1>Cracked Oura</h1>
-  <p><b>Free application that gives you full access to your Oura ring data.</b></p>
-  
-  [![GitHub release](https://img.shields.io/github/v/release/EIrno/Cracked-Oura?label=Latest%20Release)](https://github.com/EIrno/Cracked-Oura/releases/latest)
-  ![Status](https://img.shields.io/badge/Status-Alpha-red)
+  <p><b>Your Oura ring data, read straight from the ring, stored only on your machine.</b></p>
 </div>
 
 ---
 
-### Pay for the ring, not for the app that is not even that good
-Oura ring paywalls the data behind a subscription, but luckily you can export your data from Oura and import it to Cracked Oura.
+Cracked Oura is a local desktop app for Oura ring owners. It connects to the ring
+over Bluetooth, downloads what the ring measured, and shows it in a customizable
+dashboard with an optional local AI analyst. It never contacts Oura: no account,
+no login, no cloud API, no telemetry.
 
-**Cracked Oura** is an open-source desktop application that provides full access to your health metrics, stored locally on your machine.
+**Data sources**
 
-**Key Benefits**
-- **No Subscription:** See all of your Oura ring data without subscription. 
-- **Privacy First:** Your data is stored locally in an SQLite database. It never leaves your computer unless you export it.
-- **Advanced Analytics:** Visualize trends, correlations, and deeper insights than the standard app provides. 
+1. **Your ring, over Bluetooth** — heart rate, HRV, sleep stages, skin
+   temperature, activity, battery. See [docs/BLE.md](docs/BLE.md) for how pairing
+   works and the one trade-off (the ring can be paired with either this app or the
+   Oura app, not both at once).
+2. **An Oura data-export ZIP you already have** — drop it on the Data & Sync
+   panel to import full history including Oura's scores.
 
-<img width="1470" height="916" alt="Cracked Oura front page" src="https://github.com/user-attachments/assets/cda629a9-5072-4a5f-9e5d-6ddb3873c0f0" />
+## Install (macOS)
 
----
+1. Download the `.dmg` from the Releases page and drag the app to Applications.
+2. The app is not notarized; on first launch run
+   `xattr -cr "/Applications/Cracked Oura.app"` if macOS says it is damaged.
+3. Allow Bluetooth when asked (System Settings → Privacy & Security → Bluetooth).
+4. Open **Ring → Scan → Pair**, or **Data & Sync → Import ZIP**.
 
-## Features
+## Build from source
 
-### Oura ring data without subscription
-See all of your Oura ring data without subscription. Thanks to EU's right to data portability, you can export your data from Oura and import it to Cracked Oura. 
-
-**Automation that requests your data from Oura and imports it to Cracked Oura.** This populates the local database with your data. Population can also be done manually by importing a zip file from Oura that you can find in https://membership.ouraring.com/data-export. 
-
-<img width="1470" height="916" alt="Cracked Oura automation" src="https://github.com/user-attachments/assets/8aa42539-f014-4254-8885-9d6dfabf13b2" />
-<img width="1470" height="916" alt="Cracked Oura logn term charts" src="https://github.com/user-attachments/assets/6cbd5345-d81e-4000-ade0-a0ea4e21508c" />
-
-
-### Desktop Dashboard that can be customized
-View your Sleep, Readiness, and Activity scores, etc in a desktop dashboards that is at least as good as the official Oura dashboard. The dashboards can be customized to show the data that you want to see. 
-
-<img width="1470" height="916" alt="Cracked Oura widget editor" src="https://github.com/user-attachments/assets/39103072-e176-4b13-86df-95eaacdd3ac1" />
-<img width="1470" height="916" alt="Cracked Oura layout editor" src="https://github.com/user-attachments/assets/43925f97-9d94-48aa-8b26-36a096499c0c" />
-
-### AI Health Analyst
-Oura's own AI advisor is quite limited. It does not have access to your historical data and cannot answer questions about your health trends, because it has only a few days of data available. 
-
-Cracked Oura can leverage local LLMs to analyze your health data and provide insights. 
-
-> [!NOTE]
-> This feature is still experimental, not documented, and under development and will be improved in the future. 
-
-<img width="1470" height="916" alt="Cracked Oura advisor" src="https://github.com/user-attachments/assets/e9ce6ac2-60da-486f-a01f-8cd03dce6337" />
-
----
-
-## Getting Started
-
-### Installation
-1.  **Download** the latest release for your operating system:
-    -   [Download for macOS (.dmg)](https://github.com/EIrno/Cracked-Oura/releases)
-    -   [Download for Windows (.exe)](https://github.com/EIrno/Cracked-Oura/releases) *(Coming Soon)*
-
-2.  **Install & Run** the application.
-3.  **Login** to your Oura account when prompted to sync your historical data.
-
-
-> [!NOTE]
-> Most of the features are still experimental and under development and will be improved in the future. 
-
-### Troubleshooting
-
-> **"App is damaged and can't be opened"** (macOS)
-> This is a known Gatekeeper issue because the app is not notarized by Apple.
-> To fix, move the app to your `Applications` folder and run this in Terminal:
-> ```bash
-> sudo xattr -cr "/Applications/Cracked Oura.app"
-> ```
-
-> [!NOTE]
-> This project is not affiliated with, associated with, or endorsed by Oura Health Oy. Use at your own risk.
-
----
-
-## For Developers
-
-We welcome contributions.
-
-### Tech Stack
--   **Frontend:** Electron, React, TypeScript, Tailwind
--   **Backend:** Python, FastAPI, SQLite
-
-### Build from Source
 ```bash
-# 1. Clone Repository
-git clone https://github.com/EIrno/Cracked-Oura.git
+git clone https://github.com/karansoin/Cracked-Oura.git
 cd Cracked-Oura
 
-# 2. Setup Backend
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+# backend (Python 3.11)
+cd backend && python3 -m venv venv && ./venv/bin/pip install -r requirements-dev.txt && cd ..
 
-# 3. Setup Frontend
-cd ../frontend
-npm install
-npm run dev
+# frontend + Electron
+cd frontend && npm install && npm run dev
 ```
 
-### Build for Production
-To create a standalone application installer:
+`npm run dev` starts the Vite dev server, the Python backend (from `backend/venv`)
+and Electron. Tests: `backend/venv/bin/python -m pytest backend/tests -q`.
+
+Production build (PyInstaller-bundled backend + electron-builder):
+
 ```bash
-cd frontend
-npm run build
-# Output will be in frontend/dist-electron/
+cd frontend && npm run build
 ```
+
+## Optional: local AI analyst
+
+Install [Ollama](https://ollama.com), pull a tool-capable model
+(`ollama pull llama3.1` recommended; `llama3.2:3b` works but is weaker), and pick
+it in Settings → AI Analyst. Any OpenAI-compatible server (LM Studio, llama.cpp)
+works too. The analyst runs read-only SQL against your local database; it cannot
+modify data.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `backend/src/ble/` | Ring protocol, event decoders, BLE client, sync manager, derivation |
+| `backend/src/ingestion/` | Offline export-ZIP importer |
+| `backend/src/api/` | Local FastAPI service (`127.0.0.1:8000`) |
+| `backend/src/llm.py` | AI analyst |
+| `frontend/src/` | React dashboard (Vite, Tailwind, shadcn/ui, Chart.js) |
+| `frontend/electron/` | Electron main process |
+| `docs/` | [Codebase audit](docs/CODEBASE_AUDIT.md), [BLE guide](docs/BLE.md) |
+
+## Status and credits
+
+This is a fork of [EIrno/Cracked-Oura](https://github.com/EIrno/Cracked-Oura),
+rebuilt to work without any Oura service. The Bluetooth protocol knowledge comes
+from the public reverse-engineering work of
+[open_oura](https://github.com/Th0rgal/open_oura),
+[open_ring](https://github.com/LogosIsLife/open_ring),
+[ringverse/protocol](https://github.com/ringverse/protocol) and
+[Defying/oura-ring4-ble](https://github.com/Defying/oura-ring4-ble); the code here
+is an independent implementation of the documented byte layouts.
+
+Not affiliated with Oura Health Oy. Use at your own risk.

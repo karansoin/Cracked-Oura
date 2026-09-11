@@ -1,62 +1,34 @@
 # -*- mode: python ; coding: utf-8 -*-
+# PyInstaller spec for the local backend. Built by `npm run build:backend`.
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
-block_cipher = None
+hidden = []
+for pkg in ("uvicorn", "bleak", "cryptography", "langchain", "langchain_core", "langchain_community",
+            "langchain_ollama", "langchain_openai", "langgraph", "pydantic", "sqlalchemy", "pandas"):
+    try:
+        hidden += collect_submodules(pkg)
+    except Exception:
+        pass
+hidden += ["backend.src.ble.manager", "backend.src.api.ble_routes", "multipart", "python_multipart"]
+
+datas = [('src', 'backend/src')]
+for pkg in ("langchain", "langchain_core", "langchain_community", "langchain_ollama", "langchain_openai", "langgraph", "bleak"):
+    try:
+        datas += collect_data_files(pkg)
+    except Exception:
+        pass
 
 a = Analysis(
     ['src/api/main.py'],
-    pathex=['..'], # Allow resolving 'backend' package from root
+    pathex=['..'],
     binaries=[],
-    datas=[
-        ('src', 'backend/src'),  # Map 'src' to 'backend/src' inside bundle so 'backend.src' imports work
-        # Add any other data files here
-    ],
-    hiddenimports=[
-        'uvicorn.logging',
-        'uvicorn.loops',
-        'uvicorn.loops.auto',
-        'uvicorn.protocols',
-        'uvicorn.protocols.http',
-        'uvicorn.protocols.http.auto',
-        'uvicorn.protocols.websockets',
-        'uvicorn.protocols.websockets.auto',
-        'uvicorn.lifespan',
-        'uvicorn.lifespan.on',
-    ],
+    datas=datas,
+    hiddenimports=hidden,
     hookspath=[],
-    hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
+    excludes=['tkinter', 'matplotlib', 'PyQt5', 'PySide2', 'IPython', 'notebook', 'pytest'],
     noarchive=False,
 )
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name='backend',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='backend',
-)
+pyz = PYZ(a.pure)
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='backend', debug=False, strip=False, upx=False, console=True)
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='backend')

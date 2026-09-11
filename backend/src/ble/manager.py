@@ -245,7 +245,11 @@ class RingManager:
         return self._start(lambda: self.scan(duration), "scan")
 
     # ------------------------------------------------------------ connect
-    async def _connect(self, address: Optional[str]) -> RingClient:
+    async def _open_transport(self, address: Optional[str]):
+        """Find the ring and open a BLE transport. Returns (transport, address, name).
+
+        Kept separate so tests can inject a simulated ring.
+        """
         from bleak import BleakClient, BleakScanner
 
         target = self.device_index.get(address) if address else None
@@ -264,6 +268,10 @@ class RingManager:
         transport = BleakTransport(client)
         self._set("pairing", "Connected. If macOS asks to pair with the ring, click Connect.")
         await transport.setup()  # may trigger the macOS pairing prompt
+        return transport, target.address, target.name
+
+    async def _connect(self, address: Optional[str]) -> RingClient:
+        transport, addr, name = await self._open_transport(address)
         rc = RingClient(transport)
         self._client = rc
         info = await rc.firmware()
@@ -284,11 +292,11 @@ class RingManager:
             "api_version": info.api_version,
             "bt_stack_version": info.bt_stack_version,
             "mac": info.mac,
-            "address": target.address,
-            "name": target.name,
+            "address": addr,
+            "name": name,
         }
         self._log("info", f"Ring {self.ring['model']} serial {serial} fw {info.firmware_version}")
-        config_manager.update_config(ble_ring_address=target.address)
+        config_manager.update_config(ble_ring_address=addr)
         return rc
 
     async def _disconnect(self) -> None:
@@ -318,7 +326,16 @@ class RingManager:
                 ) from e
             self._save_key(serial, key)
             self._log("info", f"Installed a new key on ring {serial}")
-        await rc.authenticate(key)
+            await rc.authenticate(key)
+        else:
+            try:
+                await rc.authenticate(key)
+            except AuthFailed as e:
+                if e.code != 2:  # 2 = ring is factory-reset (no key installed)
+                    raise
+                self._log("info", "Ring was reset; re-installing this app's existing key")
+                await rc.set_auth_key(key)
+                await rc.authenticate(key)
         self._log("info", "Authenticated with the ring")
         # Make sure the measurement features that produce data are running.
         enabled = []

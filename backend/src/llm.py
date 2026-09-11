@@ -32,22 +32,23 @@ DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.1:latest"
 
 SCHEMA_NOTES = """
-Tables (dates are ISO strings; durations are SECONDS unless noted):
-- sleep(day, score, contributors JSON{deep_sleep,efficiency,latency,rem_sleep,restfulness,timing,total_sleep}, average_spo2, breathing_disturbance_index, recommendation, status, optimal_bedtime JSON)
-- readiness(day, score, temperature_deviation, temperature_trend_deviation, contributors JSON{activity_balance,body_temperature,hrv_balance,previous_day_activity,previous_night,recovery_index,resting_heart_rate,sleep_balance}, stress_high, recovery_high, day_summary)
-- activity(day, score, steps, total_calories, active_calories, average_met, equivalent_walking_distance, high_activity_time, medium_activity_time, low_activity_time, sedentary_time, resting_time, non_wear_time, inactivity_alerts, target_calories, target_meters, contributors JSON, class_5_min JSON, met JSON, stress JSON)
-- resilience(day, level, sleep_recovery, daytime_recovery, stress)
-- sleep_session(id, day, type in ['long_sleep','sleep','late_nap','rest'], bedtime_start, bedtime_end, total_sleep_duration, deep_sleep_duration, rem_sleep_duration, light_sleep_duration, awake_time, latency, efficiency, average_heart_rate, lowest_heart_rate, average_hrv, average_breath, time_in_bed, restless_periods, hr_data JSON, hrv_data JSON, sleep_phase_5_min JSON)
-- workout(id, day, start_time, end_time, activity, calories, distance, intensity, label, source)
-- meditation(id, day, start_time, end_time, type, mood)
-- heart_rate(timestamp, bpm, source)   -- all-day samples
-- temperature(timestamp, skin_temp)
-- ring_battery(timestamp, level, charging, in_charger)
-- cardiovascular_age(day, vascular_age)
-- vo2max(day, timestamp, vo2_max)
-- tag(id, start_time, end_time, tag_type_code, comment)
-Use the sleep_session row with type='long_sleep' for the main night's sleep.
-Extract JSON keys with json_extract(col, '$.key'). Use date(day) / strftime for date math.
+TABLES (SQLite). Daily summaries are keyed by `day` (YYYY-MM-DD text):
+- sleep: THE daily sleep score. columns day, score (0-100), contributors JSON, average_spo2, breathing_disturbance_index, recommendation, status
+- readiness: THE daily readiness score. columns day, score, temperature_deviation (°C vs baseline), temperature_trend_deviation, contributors JSON, stress_high, recovery_high, day_summary
+- activity: THE daily activity score. columns day, score, steps, total_calories, active_calories, average_met, high_activity_time, medium_activity_time, low_activity_time, sedentary_time, resting_time, non_wear_time, contributors JSON
+- resilience: day, level, sleep_recovery, daytime_recovery, stress
+- sleep_session: one row per sleep period (NOT the score). columns day, type ('long_sleep' = main night), bedtime_start, bedtime_end, total_sleep_duration, deep_sleep_duration, rem_sleep_duration, light_sleep_duration, awake_time, latency, efficiency, average_heart_rate, lowest_heart_rate, average_hrv, average_breath, time_in_bed, restless_periods
+- workout: day, start_time, end_time, activity, calories, distance, intensity, label
+- meditation: day, start_time, end_time, type, mood
+- heart_rate: timestamp, bpm, source (all-day samples)
+- temperature: timestamp, skin_temp
+- ring_battery: timestamp, level, charging
+- cardiovascular_age: day, vascular_age
+- vo2max: day, vo2_max
+- tag: start_time, end_time, tag_type_code, comment
+RULES: durations are SECONDS (divide by 3600 for hours). Scores live ONLY in sleep/readiness/activity.
+"Last 7 days of data" means the 7 most recent days present in the table (ORDER BY day DESC LIMIT 7), not relative to today unless asked.
+JSON keys: json_extract(contributors, '$.deep_sleep'). Always use ORDER BY / LIMIT and aliases; keep queries simple.
 """
 
 
@@ -104,7 +105,7 @@ class DataAnalyst:
         self.system_prompt = (
             "You are an expert analyst of the user's own Oura Ring data stored in a local SQLite database. "
             f"Today is {today}. Always inspect the schema or run sql_db_query with SELECT statements to get real numbers; "
-            "never invent values. Prefer aggregate queries with clear column aliases. Round results sensibly, "
+            "never invent values. Use the table list below; do not call sql_db_list_tables or sql_db_schema unless a query fails. Prefer aggregate queries with clear column aliases. Round results sensibly, "
             "convert seconds to hours/minutes for durations, and explain briefly what the numbers mean for the user. "
             "If the database has no rows for the period, say so plainly.\n" + SCHEMA_NOTES
         )

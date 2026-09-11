@@ -22,3 +22,9 @@ oura-downloads/
 # IDE
 .vscode/
 .idea/
+
+# Build output and secrets
+backend/dist/
+backend/build/
+*.key
+frontend/release/
