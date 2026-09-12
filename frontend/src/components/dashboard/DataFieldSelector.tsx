@@ -15,18 +15,19 @@ import {
     Battery,
     Thermometer,
     Flame,
-    Tag
+    Tag,
+    type LucideIcon,
 } from 'lucide-react';
 
 // --- Types ---
 interface SchemaNode {
-    icon?: any;
+    icon?: LucideIcon;
     fields?: string[];
     children?: Record<string, SchemaNode>;
 }
 
 // --- Constants ---
-const ICON_MAP: Record<string, any> = {
+const ICON_MAP: Record<string, LucideIcon> = {
     sleep: Moon,
     activity: Activity,
     readiness: Zap,
@@ -43,7 +44,7 @@ const ICON_MAP: Record<string, any> = {
     tag: Tag
 };
 
-const JSON_HINTS: Record<string, Record<string, any>> = {
+const JSON_HINTS: Record<string, Record<string, SchemaNode | string[]>> = {
     sleep: {
         contributors: {
             fields: ['deep_sleep', 'efficiency', 'latency', 'rem_sleep', 'restfulness', 'timing', 'total_sleep']
@@ -198,7 +199,7 @@ export function DataFieldSelector({ onSelect, selectedPath, selectedPaths, multi
 
     useEffect(() => {
         api.getSchema()
-            .then((data: Record<string, any[]>) => {
+            .then((data) => {
                 const newSchema: Record<string, SchemaNode> = {};
 
                 Object.entries(data).forEach(([domain, fields]) => {

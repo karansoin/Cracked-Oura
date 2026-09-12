@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Terminal, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** One step of the advisor's agent trace as returned by the backend. */
-interface AgentStep {
+export interface AgentStep {
     step: number;
     type: string;
     tool?: string;

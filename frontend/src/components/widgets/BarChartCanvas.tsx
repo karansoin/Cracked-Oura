@@ -9,7 +9,7 @@ import {
     type ChartOptions
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
-import { useTheme } from '@/components/theme-provider';
+import { useIsDark } from '@/components/theme-provider';
 
 // Register ChartJS components
 ChartJS.register(
@@ -22,23 +22,29 @@ ChartJS.register(
 );
 
 interface BarChartCanvasProps {
-    data: any[];
+    data: Array<Record<string, unknown>>;
     dataKey: string;
     categoryKey?: string;
     color?: string;
+    ariaLabel?: string;
+    /** Per-bar colour override (e.g. diverging colouring for deviations). */
+    barColor?: (value: number | null) => string;
 }
 
-export function BarChartCanvas({ data, dataKey, categoryKey = "name", color = "#8AB4F8" }: BarChartCanvasProps) {
-    const { theme } = useTheme();
-    const isDark = theme === 'dark';
+const toNumber = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+export function BarChartCanvas({ data, dataKey, categoryKey = "name", color = "#0072B2", ariaLabel, barColor }: BarChartCanvasProps) {
+    const isDark = useIsDark();
+
+    const values = data.map(d => toNumber(d[dataKey]));
 
     const chartData = {
-        labels: data.map(d => d[categoryKey]),
+        labels: data.map(d => String(d[categoryKey] ?? '')),
         datasets: [
             {
-                label: dataKey,
-                data: data.map(d => d[dataKey]),
-                backgroundColor: color,
+                label: dataKey.split('.').pop()?.replace(/_/g, ' ') ?? dataKey,
+                data: values,
+                backgroundColor: barColor ? values.map(barColor) : color,
                 borderRadius: 4, // Rounded corners like Recharts radius={[4, 4, 0, 0]}
                 borderSkipped: 'bottom' as const,
             },
@@ -110,7 +116,7 @@ export function BarChartCanvas({ data, dataKey, categoryKey = "name", color = "#
     };
 
     return (
-        <div className="w-full h-full min-h-[150px]">
+        <div className="w-full h-full min-h-[100px]" role="img" aria-label={ariaLabel ?? `Bar chart of ${dataKey} over ${data.length} points`}>
             <Bar data={chartData} options={options} />
         </div>
     );

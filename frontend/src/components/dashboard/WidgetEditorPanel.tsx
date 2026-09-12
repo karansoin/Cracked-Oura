@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,9 +17,13 @@ interface WidgetEditorPanelProps {
     widget?: WidgetInstance; // If provided, we are editing
 }
 
+const WIDGET_TYPES = ["score", "trend", "metric", "bar", "radar", "json", "table", "hypnogram", "contributors"] as const;
+type WidgetType = typeof WIDGET_TYPES[number];
+const isWidgetType = (v: string): v is WidgetType => (WIDGET_TYPES as readonly string[]).includes(v);
+
 export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetEditorPanelProps) {
     const [title, setTitle] = useState("");
-    const [type, setType] = useState<"score" | "trend" | "metric" | "bar" | "radar" | "json" | "table">("score");
+    const [type, setType] = useState<WidgetType>("score");
     const [dataKey, setDataKey] = useState("");
     const [dataKeys, setDataKeys] = useState<string[]>([]);
     const [color, setColor] = useState("#8AB4F8");
@@ -28,13 +32,18 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
     const [endDate, setEndDate] = useState("");
     const [showPoints, setShowPoints] = useState(false);
 
-    useEffect(() => {
+    // Re-seed the form when a different widget is opened (derived-state-during-render
+    // pattern: only reset when the widget ID changes, not on every update).
+    const widgetKey = widget?.id ?? '__new__';
+    const [syncedKey, setSyncedKey] = useState<string | null>(null);
+    if (syncedKey !== widgetKey) {
+        setSyncedKey(widgetKey);
         if (widget) {
             setTitle(widget.title);
-            setType(widget.type as any);
+            setType(isWidgetType(widget.type) ? widget.type : "score");
             setDataKey(widget.config.dataKey || "");
             setDataKeys(widget.config.dataKeys || (widget.config.dataKey ? [widget.config.dataKey] : []));
-            setColor(widget.config.color || "#8AB4F8");
+            setColor(widget.config.color || "#0072B2");
             setShowPoints(widget.config.showPoints || false);
 
             // Date Range
@@ -53,13 +62,13 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
             setType("score");
             setDataKey("sleep.score");
             setDataKeys(["sleep.score"]);
-            setColor("#8AB4F8");
+            setColor("#0072B2");
             setShowPoints(false);
             setDateRangeType('last_30');
             setStartDate("");
             setEndDate("");
         }
-    }, [widget?.id]); // Only reset when widget ID changes, not on every update
+    }
 
     // Helper to update parent
     const updateWidget = (updates: Partial<WidgetInstance>) => {
@@ -80,9 +89,13 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
         { value: "sleep.average_spo2", label: "sleep.average_spo2", types: ["metric", "trend", "table"] },
         { value: "sleep.breathing_disturbance_index", label: "sleep.breathing_disturbance_index", types: ["metric", "trend", "table"] },
         { value: "activity.steps", label: "activity.steps", types: ["metric", "trend", "table"] },
-        { value: "sleep.contributors", label: "sleep.contributors", types: ["bar", "radar", "table"] },
-        { value: "readiness.contributors", label: "readiness.contributors", types: ["bar", "radar", "table"] },
-        { value: "activity.contributors", label: "activity.contributors", types: ["bar", "radar", "table"] },
+        { value: "sleep.contributors", label: "sleep.contributors", types: ["contributors", "bar", "radar", "table"] },
+        { value: "readiness.contributors", label: "readiness.contributors", types: ["contributors", "bar", "radar", "table"] },
+        { value: "activity.contributors", label: "activity.contributors", types: ["contributors", "bar", "radar", "table"] },
+        { value: "sleep_session.sleep_phase_5_min", label: "sleep_session.sleep_phase_5_min", types: ["hypnogram"] },
+        { value: "sleep_session.lowest_heart_rate", label: "sleep_session.lowest_heart_rate", types: ["metric", "trend", "table"] },
+        { value: "sleep_session.average_hrv", label: "sleep_session.average_hrv", types: ["metric", "trend", "table"] },
+        { value: "readiness.temperature_deviation", label: "readiness.temperature_deviation", types: ["metric", "trend", "bar", "table"] },
         { value: "root", label: "full_dump (json)", types: ["json"] },
         { value: "sleep", label: "sleep (json)", types: ["json"] },
         { value: "readiness", label: "readiness (json)", types: ["json"] },
@@ -137,7 +150,9 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
                     <Label htmlFor="type">Widget Type</Label>
                     <Select
                         value={type}
-                        onValueChange={(v: "score" | "trend" | "metric" | "bar" | "radar" | "json" | "table") => {
+                        onValueChange={(value) => {
+                            if (!isWidgetType(value)) return;
+                            const v = value;
                             setType(v);
                             // Find the first valid data source for this new type
                             const validOptions = DATA_OPTIONS.filter(opt => opt.types.includes(v));
@@ -159,9 +174,11 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="score">Score Gauge</SelectItem>
-                            <SelectItem value="trend">Trend Chart</SelectItem>
                             <SelectItem value="metric">Metric Number</SelectItem>
+                            <SelectItem value="trend">Trend Chart</SelectItem>
                             <SelectItem value="bar">Bar Chart</SelectItem>
+                            <SelectItem value="hypnogram">Hypnogram (sleep stages)</SelectItem>
+                            <SelectItem value="contributors">Contributors (bars)</SelectItem>
                             <SelectItem value="radar">Radar Chart</SelectItem>
                             <SelectItem value="table">Table</SelectItem>
                             <SelectItem value="json">JSON Viewer</SelectItem>
@@ -286,13 +303,13 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
                     <Label>Accent Color</Label>
                     <div className="grid grid-cols-4 gap-2">
                         {[
-                            { color: '#8AB4F8', label: 'Blue' },
-                            { color: '#4ade80', label: 'Green' },
-                            { color: '#facc15', label: 'Yellow' },
-                            { color: '#f87171', label: 'Red' },
-                            { color: '#c084fc', label: 'Purple' },
-                            { color: '#fb923c', label: 'Orange' },
-                            { color: '#e879f9', label: 'Pink' }
+                            { color: '#0072B2', label: 'Blue' },
+                            { color: '#009E73', label: 'Green' },
+                            { color: '#E69F00', label: 'Amber' },
+                            { color: '#D55E00', label: 'Vermillion' },
+                            { color: '#CC79A7', label: 'Purple' },
+                            { color: '#56B4E9', label: 'Sky' },
+                            { color: '#8AB4F8', label: 'Light blue' }
                         ].map(({ color: c, label }) => (
                             <div
                                 key={c}

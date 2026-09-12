@@ -20,7 +20,7 @@ export function useOuraQuery(path: string, startDate?: string, endDate?: string)
             setError(null);
             try {
                 const json = await api.getQuery(path, startDate, endDate);
-                setData(json);
+                setData(json.map(row => ({ date: row.date, value: typeof row.value === 'number' ? row.value : Number.NaN })));
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Unknown error');
                 console.error("Query Error:", err);

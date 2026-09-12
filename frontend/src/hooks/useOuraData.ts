@@ -62,6 +62,9 @@ const MAX_ATTEMPTS = 10;
 
 export const useOuraData = (date: string) => {
     const [data, setData] = useState<DailyPayload | null>(null);
+    // The date the current `data` belongs to; differs from `date` while a fetch is in flight.
+    const [loadedDate, setLoadedDate] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (!date) return;
@@ -73,14 +76,20 @@ export const useOuraData = (date: string) => {
 
         const fetchData = () => {
             api.getDailyData(date)
-                .then((payload: DailyPayload) => {
-                    if (!cancelled) setData(payload);
+                .then((payload) => {
+                    if (cancelled) return;
+                    setData(payload as DailyPayload);
+                    setLoadedDate(date);
+                    setError(null);
                 })
-                .catch(() => {
+                .catch((err: unknown) => {
                     if (cancelled) return;
                     attempts++;
                     if (attempts < MAX_ATTEMPTS) {
                         timer = setTimeout(fetchData, RETRY_DELAY_MS);
+                    } else {
+                        setError(err instanceof Error ? err.message : 'Failed to load day');
+                        setLoadedDate(date);
                     }
                 });
         };
@@ -95,6 +104,9 @@ export const useOuraData = (date: string) => {
     const sleepSessions = data?.sleep_sessions ?? [];
 
     return {
+        /** True while the payload for `date` has not arrived yet. */
+        isLoading: loadedDate !== date,
+        loadError: error,
         // Pass through the raw data structure but add formatted helpers where needed
         ...(data ?? {}),
         // Adapter: Find primary sleep session (longest one) for widgets expecting singular 'sleep_session'

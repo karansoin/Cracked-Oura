@@ -6,7 +6,12 @@ import { Calendar } from "@/components/ui/calendar";
 import { Calendar as CalendarIcon, ArrowRight, Lock } from "lucide-react";
 import { format, parseISO, subDays, subHours, subMinutes, subYears, isValid, parse } from "date-fns";
 import { isIntradayKey } from "@/lib/utils";
-import type { WidgetInstance } from "@/types";
+import type { WidgetConfig, WidgetInstance } from "@/types";
+
+type DateRangeConfig = NonNullable<WidgetConfig['dateRange']>;
+type RangeType = DateRangeConfig['type'];
+type RangeUnit = NonNullable<DateRangeConfig['unit']>;
+type RangeAnchor = NonNullable<DateRangeConfig['anchor']>;
 
 interface DateRangeSelectorProps {
     widget: WidgetInstance;
@@ -137,7 +142,7 @@ export function DateRangeSelector({ widget, onUpdate, selectedDate = new Date(),
                     dateRange: {
                         type: 'relative',
                         value: from.value,
-                        unit: from.unit as any,
+                        unit: from.unit as RangeUnit,
                         anchor: to.keyword === 'selection' ? 'selected_date' : 'today'
                     }
                 }
@@ -160,7 +165,7 @@ export function DateRangeSelector({ widget, onUpdate, selectedDate = new Date(),
 
         // Case 3: Absolute dates
         let startDate = from.date;
-        let endDate = to.date;
+        const endDate = to.date;
 
         // Resolve relative start date if end date is known
         if (from.isRelative && from.value && from.unit && endDate) {
@@ -185,15 +190,15 @@ export function DateRangeSelector({ widget, onUpdate, selectedDate = new Date(),
         }
     };
 
-    const handlePreset = (type: any, value?: number, unit?: string, anchor?: string) => {
+    const handlePreset = (type: RangeType, value?: number, unit?: RangeUnit, anchor?: RangeAnchor) => {
         onUpdate({
             config: {
                 ...widget.config,
                 dateRange: {
                     type,
                     value,
-                    unit: unit as any,
-                    anchor: anchor as any
+                    unit,
+                    anchor
                 }
             }
         });

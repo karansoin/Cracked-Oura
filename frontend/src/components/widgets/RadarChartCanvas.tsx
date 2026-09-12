@@ -22,7 +22,7 @@ ChartJS.register(
 );
 
 interface RadarChartCanvasProps {
-    data: any[];
+    data: Array<Record<string, unknown>>;
     dataKey: string;
     axisKey?: string;
     color?: string;
@@ -41,11 +41,11 @@ export function RadarChartCanvas({ data, dataKey, axisKey = "subject", color = "
     }
 
     const chartData = {
-        labels: data.map(d => d[axisKey]),
+        labels: data.map(d => String(d[axisKey] ?? '')),
         datasets: [
             {
                 label: 'Value',
-                data: data.map(d => d[dataKey]),
+                data: data.map(d => (typeof d[dataKey] === 'number' ? d[dataKey] : null)),
                 backgroundColor: `${color}80`, // 50% opacity
                 borderColor: color,
                 borderWidth: 2,

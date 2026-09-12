@@ -1,7 +1,9 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import type { WidgetInstance, Dashboard, LayoutItem } from '@/types';
 import { useOuraData, type OuraDayData } from '@/hooks/useOuraData';
 import { useDashboardPersistence } from '@/hooks/useDashboardPersistence';
+import { useAppStatus } from '@/contexts/AppStatusContext';
+import { buildOverviewContents, buildOverviewDashboard } from '@/lib/defaultDashboard';
 import { format } from 'date-fns';
 
 // Initial empty dashboard skeleton
@@ -12,8 +14,8 @@ const EMPTY_DASHBOARD: Dashboard = {
     layout: []
 };
 
-type PanelType = 'none' | 'chat' | 'editor' | 'settings';
-type ViewType = 'dashboard' | 'chat-page';
+export type PanelType = 'none' | 'chat' | 'editor' | 'settings' | 'data';
+export type ViewType = 'dashboard' | 'chat-page' | 'ring';
 
 interface DashboardContextType {
     // Dashboard State
@@ -24,6 +26,8 @@ interface DashboardContextType {
     addDashboard: () => void;
     deleteDashboard: (id: string) => void;
     renameDashboard: (id: string, name: string) => void;
+    /** Replace a dashboard's widgets/layout with the Overview template (creates it if id is missing). */
+    resetOverview: (id?: string) => void;
 
     // Layout/Widget State (for active dashboard)
     widgets: WidgetInstance[];
@@ -39,6 +43,10 @@ interface DashboardContextType {
     setActivePanel: (panel: PanelType) => void;
     activeView: ViewType;
     setActiveView: (view: ViewType) => void;
+    isDatePickerOpen: boolean;
+    setDatePickerOpen: (open: boolean) => void;
+    isShortcutSheetOpen: boolean;
+    setShortcutSheetOpen: (open: boolean) => void;
 
     // Widget Editing
     editingWidget: WidgetInstance | undefined;
@@ -63,6 +71,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const [activePanel, setActivePanel] = useState<PanelType>('none');
     const [activeView, setActiveView] = useState<ViewType>('dashboard');
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+    const [isDatePickerOpen, setDatePickerOpen] = useState(false);
+    const [isShortcutSheetOpen, setShortcutSheetOpen] = useState(false);
 
     // Dashboards
     const [dashboards, setDashboards] = useState<Dashboard[]>([EMPTY_DASHBOARD]);
@@ -75,7 +85,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     // Persistence. When the saved dashboards arrive they replace the empty default and
     // the saved active id is selected - done in the load promise callback rather than an
     // effect so no state is set synchronously during an effect.
-    const { saveDashboards, isLoaded: isLayoutLoaded } = useDashboardPersistence({
+    const { saveDashboards, savedDashboards, isLoaded: isLayoutLoaded } = useDashboardPersistence({
         onLoaded: ({ dashboards: saved, activeDashboardId: savedActiveId }) => {
             if (saved.length === 0) return;
             setDashboards(saved);
@@ -86,6 +96,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     // Data Fetching
     const dateString = format(selectedDate, 'yyyy-MM-dd');
     const data = useOuraData(dateString);
+    const { hasData } = useAppStatus();
 
     // --- Effects ---
 
@@ -94,13 +105,32 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         window.dispatchEvent(new Event('resize'));
     }, [activePanel]);
 
+    // First-run Overview: once data exists and the user has no saved dashboards
+    // (or only the empty skeleton), create the template dashboard.
+    const seededRef = useRef(false);
+    useEffect(() => {
+        if (seededRef.current || !isLayoutLoaded || hasData !== true) return;
+        const nothingSaved = !savedDashboards || savedDashboards.length === 0
+            || (savedDashboards.length === 1 && savedDashboards[0].widgets.length === 0);
+        if (!nothingSaved) return;
+        // Seed in a callback (not synchronously in the effect body) so React does not
+        // re-render in a cascade; the ref guards against double seeding.
+        const timer = window.setTimeout(() => {
+            if (seededRef.current) return;
+            seededRef.current = true;
+            const overview = buildOverviewDashboard();
+            setDashboards([overview]);
+            setActiveDashboardId(overview.id);
+            saveDashboards([overview], overview.id);
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [isLayoutLoaded, hasData, savedDashboards, saveDashboards]);
+
     // --- Helpers ---
 
     const activeDashboard = dashboards.find(d => d.id === activeDashboardId) || dashboards[0];
     const widgets = activeDashboard?.widgets || [];
     const layout = activeDashboard?.layout || [];
-
-
 
     const persist = (newDashboards: Dashboard[], newActiveId: string) => {
         saveDashboards(newDashboards, newActiveId);
@@ -144,6 +174,19 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         persist(newDashboards, activeDashboardId);
     };
 
+    const resetOverview = (id?: string) => {
+        const targetId = id ?? activeDashboardId;
+        const exists = dashboards.some(d => d.id === targetId);
+        const newDashboards = exists
+            ? dashboards.map(d => d.id === targetId ? { ...d, ...buildOverviewContents() } : d)
+            : [...dashboards, buildOverviewDashboard(targetId)];
+        setDashboards(newDashboards);
+        setActiveDashboardId(targetId);
+        setActiveView('dashboard');
+        setIsEditing(false);
+        persist(newDashboards, targetId);
+    };
+
     // Overriding updateActiveDashboard to handle persistence
     const handleUpdateActiveDashboard = (updates: Partial<Dashboard>) => {
         const newDashboards = dashboards.map(d =>
@@ -174,7 +217,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
                 title: 'New Widget',
                 width: 'col-span-4',
                 height: 'h-40',
-                config: { dataKey: 'sleep.score', color: '#8AB4F8' }
+                config: { dataKey: 'sleep.score' }
             };
 
             const newWidgets = [...widgets, newWidget];
@@ -245,6 +288,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             addDashboard,
             deleteDashboard,
             renameDashboard,
+            resetOverview,
             widgets,
             layout,
             updateActiveDashboard: handleUpdateActiveDashboard,
@@ -255,6 +299,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             setActivePanel,
             activeView,
             setActiveView,
+            isDatePickerOpen,
+            setDatePickerOpen,
+            isShortcutSheetOpen,
+            setShortcutSheetOpen,
             editingWidget,
             startEditingWidget,
             saveEditingWidget,

@@ -1,453 +1,255 @@
-import { useState, useEffect } from 'react';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { X, Loader2, AlertCircle, Download, Copy, Upload } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { cn } from "@/lib/utils";
-import { api, type AutomationStatusResponse } from '@/lib/api';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { CheckCircle2, Eye, EyeOff, Keyboard, Loader2, X, XCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useTheme } from '@/components/theme-provider';
+import { useAppStatus, toastError } from '@/contexts/AppStatusContext';
+import { useDashboard } from '@/contexts/DashboardContext';
+import { api, type AdvisorStatus, type LlmProvider, type Units } from '@/lib/api';
 
 interface SettingsPanelProps {
     onClose: () => void;
 }
 
-type AutomationStatus = AutomationStatusResponse['status'];
+const SECRET_MASK = '********';
 
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
-    const [status, setStatus] = useState<AutomationStatus>('idle');
-    const [email, setEmail] = useState('');
-    const [otp, setOtp] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [logs, setLogs] = useState<string[]>([]);
-    const [activeTab, setActiveTab] = useState<'automation' | 'layout'>('automation');
+    const { settings, updateSettings, refreshSettings } = useAppStatus();
+    const { setShortcutSheetOpen } = useDashboard();
+    const { theme, setTheme } = useTheme();
 
-    const [dailySyncTime, setDailySyncTime] = useState("09:00");
+    // AI Analyst form (explicit Save so half-typed hosts are not persisted)
+    const [provider, setProvider] = useState<LlmProvider>('ollama');
+    const [host, setHost] = useState('');
+    const [model, setModel] = useState('');
+    const [baseUrl, setBaseUrl] = useState('');
+    const [apiKey, setApiKey] = useState('');
+    const [showKey, setShowKey] = useState(false);
+    const [dirty, setDirty] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [testing, setTesting] = useState(false);
+    const [status, setStatus] = useState<AdvisorStatus | null>(null);
 
+    useEffect(() => { void refreshSettings(); }, [refreshSettings]);
+
+    // Hydrate the form from stored settings (once per load; not while the user is editing)
     useEffect(() => {
-        // Fetch settings on mount
-        api.getSettings()
-            .then(data => {
-                if (data.daily_sync_time) setDailySyncTime(data.daily_sync_time);
-                if (data.email) setEmail(data.email);
-            })
-            .catch(err => console.error("Failed to fetch settings", err));
-    }, []);
+        if (!settings || dirty) return;
+        setProvider(settings.llm_provider === 'openai_compatible' ? 'openai_compatible' : 'ollama');
+        setHost(settings.llm_host ?? '');
+        setModel(settings.llm_model ?? '');
+        setBaseUrl(settings.llm_base_url ?? '');
+        setApiKey(settings.llm_api_key ?? '');
+    }, [settings, dirty]);
 
-    const addLog = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
-
-    const handleSaveSettings = async () => {
-        setLoading(true);
+    const loadStatus = async () => {
+        setTesting(true);
         try {
-            await api.saveSettings({ daily_sync_time: dailySyncTime, email });
-            addLog(`Settings saved: Daily sync at ${dailySyncTime}`);
-        } catch (err: any) {
-            setError(err.message);
+            const s = await api.getAdvisorStatus();
+            setStatus(s);
+            return s;
+        } catch (err) {
+            setStatus({ ok: false, provider, models: [], model, model_available: false, error: err instanceof Error ? err.message : 'Failed' });
+            return null;
         } finally {
-            setLoading(false);
+            setTesting(false);
         }
     };
 
-    const handleClearSession = async () => {
-        if (!confirm("Are you sure you want to clear the login session? You will need to login again.")) return;
+    useEffect(() => { void loadStatus(); /* eslint-disable-line react-hooks/exhaustive-deps -- initial probe only */ }, []);
 
-        setLoading(true);
+    const saveAi = async () => {
+        setSaving(true);
         try {
-            await api.clearSession();
-            setStatus('idle');
-            addLog("Session cleared.");
-        } catch (err: any) {
-            setError(err.message);
+            await updateSettings({
+                llm_provider: provider,
+                llm_host: host,
+                llm_model: model,
+                llm_base_url: baseUrl,
+                // '********' is sent back untouched so the stored key is kept.
+                llm_api_key: apiKey,
+            });
+            setDirty(false);
+            toast.success('AI Analyst settings saved');
+            await loadStatus();
+        } catch (err) {
+            toastError('Could not save settings', err);
         } finally {
-            setLoading(false);
+            setSaving(false);
         }
     };
 
-    const handleStartLogin = async () => {
-        setLoading(true);
-        setError(null);
-        addLog(`Starting login for ${email}...`);
+    const testConnection = async () => {
+        if (dirty) await saveAi();
+        else await loadStatus();
+    };
+
+    const setUnits = async (units: Units) => {
         try {
-            // Auto-save settings to persist email
-            await api.saveSettings({ daily_sync_time: dailySyncTime, email });
-
-            const data = await api.startLogin(email);
-            addLog(data.message);
-            setStatus('otp_needed');
-        } catch (err: any) {
-            setError(err.message);
-            addLog(`Error: ${err.message}`);
-        } finally {
-            setLoading(false);
+            await updateSettings({ units });
+            toast.success(`Units set to ${units}`);
+        } catch (err) {
+            toastError('Could not save units', err);
         }
     };
 
-    const handleSubmitOtp = async () => {
-        setLoading(true);
-        setError(null);
-        addLog(`Submitting OTP...`);
-        try {
-            const data = await api.submitOtp(otp);
-            addLog(data.message);
-            setStatus('logged_in');
-        } catch (err: any) {
-            setError(err.message);
-            addLog(`Error: ${err.message}`);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleRequestExport = async () => {
-        setLoading(true);
-        setError(null);
-        addLog(`Requesting data export...`);
-        try {
-            const data = await api.requestExport();
-            addLog(data.message);
-            setStatus('exporting');
-            // Start polling
-            pollStatus();
-        } catch (err: any) {
-            setError(err.message);
-            addLog(`Error: ${err.message}`);
-            setLoading(false);
-        }
-    };
-
-    const pollStatus = async () => {
-        const interval = setInterval(async () => {
-            try {
-                const data = await api.checkStatus();
-
-                if (data.status === 'completed' || data.status === 'ready_to_download') {
-                    clearInterval(interval);
-                    setStatus('ready_to_download');
-                    setLoading(false);
-                    addLog("Export ready for download!");
-                } else if (data.status === 'error') {
-                    clearInterval(interval);
-                    setStatus('error');
-                    setError("Export failed on server.");
-                    setLoading(false);
-                } else {
-                    // Still processing
-                    addLog(`Status: ${data.status}`);
-                }
-            } catch (err) {
-                console.error("Polling error", err);
-            }
-        }, 5000);
-    };
-
-    const handleDownload = async () => {
-        setLoading(true);
-        setError(null);
-        addLog(`Downloading and ingesting data...`);
-        try {
-            const data = await api.downloadExport();
-            addLog(data.message);
-            setStatus('completed');
-        } catch (err: any) {
-            setError(err.message);
-            addLog(`Error: ${err.message}`);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        setLoading(true);
-        setError(null);
-        addLog(`Uploading ${file.name}...`);
-
-        try {
-            const data = await api.uploadZip(file);
-            addLog(data.message || "Upload complete");
-            setStatus('completed');
-        } catch (err: any) {
-            setError(err.message);
-            addLog(`Error: ${err.message}`);
-        } finally {
-            setLoading(false);
-            // Reset input
-            event.target.value = '';
-        }
-    };
+    const modelOptions = status?.models ?? [];
+    const mark = (v: () => void) => { v(); setDirty(true); };
 
     return (
-        <div className="w-[400px] border-l bg-card flex flex-col h-full">
-            {/* Header */}
+        <aside className="w-[420px] border-l bg-card flex flex-col h-full" aria-label="Settings">
             <div className="p-6 border-b flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Settings</h2>
-                <Button variant="ghost" size="icon" onClick={onClose}>
+                <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close panel">
                     <X className="h-4 w-4" />
                 </Button>
             </div>
 
-            {/* Tabs */}
-            <div className="flex border-b">
-                <button
-                    className={cn(
-                        "flex-1 py-3 text-sm font-medium border-b-2 transition-colors",
-                        activeTab === 'automation'
-                            ? "border-primary text-primary"
-                            : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}
-                    onClick={() => setActiveTab('automation')}
-                >
-                    Automation
-                </button>
-                <button
-                    className={cn(
-                        "flex-1 py-3 text-sm font-medium border-b-2 transition-colors",
-                        activeTab === 'layout'
-                            ? "border-primary text-primary"
-                            : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}
-                    onClick={() => setActiveTab('layout')}
-                >
-                    Layout
-                </button>
-            </div>
+            <div className="flex-1 p-6 space-y-8 overflow-y-auto">
+                {/* Units */}
+                <section className="space-y-3" aria-labelledby="units-heading">
+                    <h3 id="units-heading" className="font-medium text-xs text-muted-foreground uppercase tracking-wider">Units</h3>
+                    <div className="space-y-2">
+                        <Label htmlFor="units-select">Measurement system</Label>
+                        <Select value={settings?.units ?? 'metric'} onValueChange={(v) => void setUnits(v === 'imperial' ? 'imperial' : 'metric')}>
+                            <SelectTrigger id="units-select"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="metric">Metric (°C, km)</SelectItem>
+                                <SelectItem value="imperial">Imperial (°F, mi)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">Temperature is shown as a deviation from your baseline (a Δ), not an absolute temperature.</p>
+                    </div>
+                </section>
 
-            <div className="flex-1 p-6 space-y-6 overflow-y-auto">
-                {activeTab === 'automation' && (
-                    <>
-                        {/* Automation Config */}
-                        <div className="space-y-4">
-                            <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">Configuration</h3>
+                {/* AI Analyst */}
+                <section className="space-y-3" aria-labelledby="ai-heading">
+                    <h3 id="ai-heading" className="font-medium text-xs text-muted-foreground uppercase tracking-wider">AI Analyst</h3>
+                    <p className="text-xs text-muted-foreground">The analyst runs SQL against your local database through a language model you control.</p>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="provider-select">Provider</Label>
+                        <Select value={provider} onValueChange={(v) => mark(() => setProvider(v === 'openai_compatible' ? 'openai_compatible' : 'ollama'))}>
+                            <SelectTrigger id="provider-select"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="ollama">Ollama (local)</SelectItem>
+                                <SelectItem value="openai_compatible">OpenAI-compatible API</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    {provider === 'ollama' ? (
+                        <>
                             <div className="space-y-2">
-                                <Label>Daily Sync Time</Label>
+                                <Label htmlFor="llm-host">Host</Label>
+                                <Input id="llm-host" value={host} placeholder="http://127.0.0.1:11434" onChange={(e) => mark(() => setHost(e.target.value))} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="llm-model">Model</Label>
+                                {modelOptions.length > 0 ? (
+                                    <Select value={modelOptions.includes(model) ? model : ''} onValueChange={(v) => mark(() => setModel(v))}>
+                                        <SelectTrigger id="llm-model"><SelectValue placeholder={model || 'Choose a model'} /></SelectTrigger>
+                                        <SelectContent>
+                                            {modelOptions.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                ) : (
+                                    <Input id="llm-model" value={model} placeholder="e.g. llama3.1" onChange={(e) => mark(() => setModel(e.target.value))} />
+                                )}
+                                {modelOptions.length === 0 && <p className="text-xs text-muted-foreground">Test the connection to list the models Ollama has installed.</p>}
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="space-y-2">
+                                <Label htmlFor="llm-base-url">Base URL</Label>
+                                <Input id="llm-base-url" value={baseUrl} placeholder="https://api.example.com/v1" onChange={(e) => mark(() => setBaseUrl(e.target.value))} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="llm-model-text">Model</Label>
+                                <Input id="llm-model-text" value={model} placeholder="e.g. gpt-4o-mini" onChange={(e) => mark(() => setModel(e.target.value))} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="llm-api-key">API key</Label>
                                 <div className="flex gap-2">
                                     <Input
-                                        type="time"
-                                        value={dailySyncTime}
-                                        onChange={e => setDailySyncTime(e.target.value)}
+                                        id="llm-api-key"
+                                        type={showKey ? 'text' : 'password'}
+                                        value={apiKey}
+                                        placeholder="sk-…"
+                                        autoComplete="off"
+                                        onFocus={() => { if (apiKey === SECRET_MASK) setApiKey(''); }}
+                                        onBlur={() => { if (apiKey === '' && settings?.llm_api_key === SECRET_MASK && !dirty) setApiKey(SECRET_MASK); }}
+                                        onChange={(e) => mark(() => setApiKey(e.target.value))}
                                     />
-                                    <Button onClick={handleSaveSettings} disabled={loading} variant="outline">
-                                        Save
+                                    <Button type="button" variant="outline" size="icon" onClick={() => setShowKey(s => !s)} aria-label={showKey ? 'Hide API key' : 'Show API key'} aria-pressed={showKey}>
+                                        {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                     </Button>
                                 </div>
+                                <p className="text-xs text-muted-foreground">
+                                    {settings?.llm_api_key === SECRET_MASK ? 'A key is stored. Leave it as-is to keep it, or type a new one.' : 'Stored locally in the app config.'}
+                                </p>
                             </div>
-                        </div>
+                        </>
+                    )}
 
-                        {/* Manual Actions */}
-                        <div className="space-y-4">
-                            <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">Sync Status</h3>
-
-                            {/* Status Indicator */}
-                            <div className="flex items-center gap-2 p-3 bg-secondary/50 rounded-lg">
-                                <div className={cn("h-2.5 w-2.5 rounded-full",
-                                    status === 'completed' ? "bg-green-500" :
-                                        status === 'error' ? "bg-red-500" :
-                                            loading ? "bg-yellow-500 animate-pulse" : "bg-gray-500"
-                                )} />
-                                <span className="text-sm font-medium">
-                                    {status === 'idle' && "Ready"}
-                                    {status === 'login_needed' && "Login required"}
-                                    {status === 'otp_needed' && "Enter OTP"}
-                                    {status === 'logged_in' && "Logged in"}
-                                    {status === 'exporting' && "Exporting data..."}
-                                    {status === 'ready_to_download' && "Export ready"}
-                                    {status === 'completed' && "Sync complete"}
-                                    {status === 'error' && "Error occurred"}
-                                </span>
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-3">
-                                {/* Login Flow */}
-                                {status === 'idle' && (
-                                    <div className="space-y-3 p-3 border rounded-lg">
-                                        <Label>Login</Label>
-                                        <Input
-                                            placeholder="email@example.com"
-                                            value={email}
-                                            onChange={e => setEmail(e.target.value)}
-                                        />
-                                        <Button className="w-full" onClick={handleStartLogin} disabled={!email || loading}>
-                                            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            Start Login
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {status === 'otp_needed' && (
-                                    <div className="space-y-3 p-3 border rounded-lg bg-secondary/10">
-                                        <Alert>
-                                            <AlertCircle className="h-4 w-4" />
-                                            <AlertTitle>OTP Sent</AlertTitle>
-                                            <AlertDescription>Check your email.</AlertDescription>
-                                        </Alert>
-                                        <Input
-                                            placeholder="OTP Code"
-                                            value={otp}
-                                            onChange={e => setOtp(e.target.value)}
-                                        />
-                                        <Button className="w-full" onClick={handleSubmitOtp} disabled={!otp || loading}>
-                                            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            Submit OTP
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {/* Actions */}
-                                <div className="space-y-2">
-                                    <Label>Data Sync</Label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <Button
-                                            variant="outline"
-                                            onClick={handleRequestExport}
-                                            disabled={loading || status === 'exporting'}
-                                            className="h-auto py-3 flex flex-col gap-1"
-                                        >
-                                            <span className="font-semibold">Request New</span>
-                                            <span className="text-xs font-normal text-muted-foreground">Request & Wait</span>
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            onClick={handleDownload}
-                                            disabled={loading}
-                                            className="h-auto py-3 flex flex-col gap-1"
-                                        >
-                                            <span className="font-semibold">Download Latest</span>
-                                            <span className="text-xs font-normal text-muted-foreground">Ingest Existing</span>
-                                        </Button>
-                                    </div>
-                                </div>
-
-                                {/* Manual Import */}
-                                <div className="space-y-2">
-                                    <Label>Manual Upload</Label>
-                                    <div className="flex gap-2">
-                                        <Input
-                                            type="file"
-                                            accept=".zip"
-                                            onChange={handleFileUpload}
-                                            disabled={loading}
-                                            className="cursor-pointer"
-                                        />
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground">
-                                        Upload an Oura export ZIP file manually.
-                                    </p>
-                                </div>
-                            </div>
-
-                            {status === 'ready_to_download' && (
-                                <Alert className="bg-blue-500/10 border-blue-500/20">
-                                    <Download className="h-4 w-4 text-blue-500" />
-                                    <AlertTitle>Export Ready</AlertTitle>
-                                    <AlertDescription>
-                                        Data is ready. Click "Download Latest" to ingest.
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-
-                            {error && (
-                                <Alert variant="destructive">
-                                    <AlertCircle className="h-4 w-4" />
-                                    <AlertTitle>Error</AlertTitle>
-                                    <AlertDescription>{error}</AlertDescription>
-                                </Alert>
-                            )}
-                        </div>
-
-                        {/* Logs Console */}
-                        <div className="space-y-2">
-                            <Label>Activity Log</Label>
-                            <div className="bg-black/50 rounded-md p-3 h-32 overflow-y-auto font-mono text-xs text-muted-foreground space-y-1">
-                                {logs.length === 0 && <span className="opacity-50">No activity yet...</span>}
-                                {logs.map((log, i) => (
-                                    <div key={i}>{log}</div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Session Management (Bottom) */}
-                        <div className="pt-4 border-t space-y-4">
-                            <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">Session</h3>
-                            <Button
-                                variant="destructive"
-                                className="w-full"
-                                onClick={handleClearSession}
-                                disabled={loading}
-                            >
-                                Clear Login Session
-                            </Button>
-                        </div>
-                    </>
-                )}
-
-                {activeTab === 'layout' && (
-                    <div className="space-y-4">
-                        <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">Layout Actions</h3>
-
-                        <div className="grid grid-cols-1 gap-3">
-                            <Button variant="outline" onClick={() => {
-                                api.getLayout()
-                                    .then(data => {
-                                        const layoutJson = JSON.stringify(data, null, 2);
-                                        navigator.clipboard.writeText(layoutJson);
-                                        addLog("Layout config copied to clipboard.");
-                                    })
-                                    .catch(err => {
-                                        console.error("Failed to fetch layout", err);
-                                    });
-                            }}>
-                                <Copy className="mr-2 h-4 w-4" />
-                                Copy Layout to Clipboard
-                            </Button>
-
-                            <div className="space-y-2">
-                                <Label>Import Layout</Label>
-                                <textarea
-                                    placeholder="Paste layout JSON here..."
-                                    className="flex min-h-[150px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 font-mono text-[10px]"
-                                    id="import-layout-area"
-                                />
-                                <Button
-                                    variant="outline"
-                                    className="w-full"
-                                    onClick={async () => {
-                                        const el = document.getElementById('import-layout-area') as HTMLTextAreaElement;
-                                        if (!el || !el.value) return;
-
-                                        try {
-                                            const rawJson = JSON.parse(el.value);
-                                            let payload = rawJson;
-
-                                            // Handle case where export is wrapped in "dashboard" key
-                                            if (rawJson.dashboard && rawJson.dashboard.dashboards) {
-                                                payload = rawJson.dashboard;
-                                            }
-
-                                            // Validation
-                                            if (!payload.dashboards && !payload.widgets) {
-                                                alert("Invalid JSON: Must contain 'dashboards' or 'widgets' property.");
-                                                return;
-                                            }
-
-                                            await api.saveLayout(payload);
-                                            alert("Layout imported successfully! The page will reload.");
-                                            window.location.reload();
-                                            el.value = "";
-                                        } catch (e: any) {
-                                            alert("Import Failed: " + e.message);
-                                        }
-                                    }}
-                                >
-                                    <Upload className="mr-2 h-4 w-4" />
-                                    Import Layout
-                                </Button>
-                            </div>
-                        </div>
+                    <div className="flex gap-2 pt-1">
+                        <Button className="flex-1" onClick={() => void saveAi()} disabled={saving || !dirty}>
+                            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+                            Save
+                        </Button>
+                        <Button variant="outline" className="flex-1" onClick={() => void testConnection()} disabled={testing || saving}>
+                            {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+                            Test connection
+                        </Button>
                     </div>
-                )}
+
+                    {status && (
+                        <div className="rounded-lg border p-3 text-xs space-y-1" role="status">
+                            <p className="flex items-center gap-1.5 font-medium">
+                                {status.ok ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> : <XCircle className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />}
+                                {status.ok ? `Connected to ${status.provider}` : `Cannot reach ${status.provider || provider}`}
+                            </p>
+                            {status.ok && (
+                                <p className="text-muted-foreground">
+                                    Model <span className="font-mono text-foreground">{status.model || model || '—'}</span>{' '}
+                                    {status.model_available ? 'is available.' : 'is not available on this provider.'}
+                                    {status.models.length > 0 && ` ${status.models.length} model(s) listed.`}
+                                </p>
+                            )}
+                            {status.error && <p className="text-destructive">{status.error}</p>}
+                        </div>
+                    )}
+                </section>
+
+                {/* Appearance */}
+                <section className="space-y-3" aria-labelledby="appearance-heading">
+                    <h3 id="appearance-heading" className="font-medium text-xs text-muted-foreground uppercase tracking-wider">Appearance</h3>
+                    <div className="space-y-2">
+                        <Label htmlFor="theme-select">Theme</Label>
+                        <Select value={theme} onValueChange={(v) => setTheme(v === 'light' ? 'light' : v === 'dark' ? 'dark' : 'system')}>
+                            <SelectTrigger id="theme-select"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="system">System</SelectItem>
+                                <SelectItem value="light">Light</SelectItem>
+                                <SelectItem value="dark">Dark</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </section>
+
+                {/* Keyboard */}
+                <section className="space-y-3" aria-labelledby="keyboard-heading">
+                    <h3 id="keyboard-heading" className="font-medium text-xs text-muted-foreground uppercase tracking-wider">Keyboard</h3>
+                    <Button variant="outline" className="w-full gap-2" onClick={() => setShortcutSheetOpen(true)}>
+                        <Keyboard className="h-4 w-4" aria-hidden="true" /> Show keyboard shortcuts
+                        <kbd className="ml-auto font-mono text-[10px] border rounded px-1 text-muted-foreground">?</kbd>
+                    </Button>
+                </section>
             </div>
-        </div >
+        </aside>
     );
 }

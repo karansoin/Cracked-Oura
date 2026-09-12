@@ -8,11 +8,14 @@ import {
     Tooltip,
     Filler,
     Legend,
+    type Chart,
     type ChartOptions,
+    type Plugin,
     type ScriptableContext
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { useTheme } from '@/components/theme-provider';
+import { useIsDark } from '@/components/theme-provider';
+import { BANDS, CHART_NEUTRAL, SERIES_PALETTE, withAlpha } from '@/lib/bands';
 
 // Register ChartJS components
 ChartJS.register(
@@ -26,60 +29,62 @@ ChartJS.register(
     Legend
 );
 
+type Row = Record<string, unknown>;
+
 interface TrendChartCanvasProps {
-    data: any[];
+    data: Row[];
     dataKey?: string;
     dataKeys?: string[];
     title: string;
     color: string;
     showPoints?: boolean;
+    ariaLabel?: string;
 }
 
-export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPoints = false }: TrendChartCanvasProps) {
-    const { theme } = useTheme();
-    const isDark = theme === 'dark';
+const toNumber = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPoints = false, ariaLabel }: TrendChartCanvasProps) {
+    const isDark = useIsDark();
 
     // Determine keys to plot
     const keys = (dataKeys && dataKeys.length > 0) ? dataKeys : (dataKey ? [dataKey] : []);
 
-    // Color palette for multi-series
-    const colors = [
-        color,
-        '#FF6B6B', // Red
-        '#4ECDC4', // Teal
-        '#FFE66D', // Yellow
-        '#1A535C', // Dark Teal
-        '#FF9F1C', // Orange
-        '#2EC4B6', // Cyan
-        '#E71D36', // Red
-        '#7209B7', // Purple
-    ];
+    // Score charts (every key is a `*.score`) get band shading behind the lines.
+    const isScoreChart = keys.length > 0 && keys.every(k => k.endsWith('.score'));
+
+    // Okabe-Ito palette for multi-series; the widget accent leads.
+    const colors = [color, ...SERIES_PALETTE.filter(c => c.toLowerCase() !== color.toLowerCase())];
+
+    // Series labels: the last path segment, unless that would be ambiguous
+    // (e.g. sleep.score / readiness.score / activity.score -> "sleep score", ...).
+    const lastSegments = keys.map(k => k.split('.').pop() ?? k);
+    const ambiguous = new Set(lastSegments).size !== lastSegments.length;
+    const seriesLabel = (key: string) => (ambiguous ? key.replace(/\./g, ' ') : (key.split('.').pop() ?? key)).replace(/_/g, ' ') || title;
 
     // Prepare data for Chart.js
     const chartData = {
-        labels: data.map(d => d.date),
+        labels: data.map(d => String(d.date ?? '')),
         datasets: keys.map((key, index) => {
-
-
             const seriesColor = colors[index % colors.length];
-            const label = key.split('.').pop()?.replace(/_/g, ' ') || title;
+            const label = seriesLabel(key);
 
             return {
                 label: label,
-                data: data.map(d => d[key] !== undefined ? d[key] : d.value),
+                data: data.map(d => toNumber(d[key] !== undefined ? d[key] : d.value)),
                 borderColor: seriesColor,
                 backgroundColor: (context: ScriptableContext<'line'>) => {
                     const ctx = context.chart.ctx;
                     const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height);
-                    gradient.addColorStop(0, `${seriesColor}80`); // 50% opacity
-                    gradient.addColorStop(1, `${seriesColor}00`); // 0% opacity
+                    gradient.addColorStop(0, withAlpha(seriesColor, isScoreChart ? 0.15 : 0.5));
+                    gradient.addColorStop(1, withAlpha(seriesColor, 0));
                     return gradient;
                 },
-                fill: true,
+                fill: !isScoreChart || keys.length === 1,
                 tension: 0, // No smoothing (linear)
                 pointRadius: showPoints ? 3 : 0, // Show points if enabled
                 pointHoverRadius: 4,
                 borderWidth: 2,
+                spanGaps: true,
             };
         }),
     };
@@ -96,7 +101,16 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
         },
         plugins: {
             legend: {
-                display: false,
+                display: keys.length > 1,
+                position: 'top',
+                align: 'end',
+                labels: {
+                    boxWidth: 8,
+                    boxHeight: 8,
+                    usePointStyle: true,
+                    color: isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight,
+                    font: { size: 10 },
+                },
             },
             tooltip: {
                 enabled: true,
@@ -148,7 +162,7 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
                     display: false
                 },
                 ticks: {
-                    color: isDark ? '#9ca3af' : '#6b7280',
+                    color: isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight,
                     font: {
                         size: 10
                     },
@@ -189,30 +203,34 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
             y: {
                 display: true,
                 position: 'left', // Move to left
+                min: isScoreChart ? 0 : undefined,
+                max: isScoreChart ? 100 : undefined,
                 grid: {
-                    color: isDark ? '#374151' : '#e5e7eb',
+                    color: isDark ? withAlpha('#ffffff', 0.08) : withAlpha('#000000', 0.08),
                     drawTicks: false,
                 },
                 border: {
                     display: false
                 },
                 ticks: {
-                    color: isDark ? '#9ca3af' : '#6b7280',
+                    color: isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight,
                     font: {
                         size: 10
-                    }
+                    },
+                    maxTicksLimit: 6,
                 }
             }
         }
     };
 
     // Custom plugin to draw vertical line on hover
-    const verticalLinePlugin = {
+    const verticalLinePlugin: Plugin<'line'> = {
         id: 'verticalLine',
-        afterDraw: (chart: any) => {
-            if (chart.tooltip?._active?.length) {
+        afterDraw: (chart: Chart<'line'>) => {
+            const active = chart.tooltip?.getActiveElements();
+            if (active && active.length) {
                 const ctx = chart.ctx;
-                const x = chart.tooltip._active[0].element.x;
+                const x = active[0].element.x;
                 const topY = chart.scales.y.top;
                 const bottomY = chart.scales.y.bottom;
 
@@ -228,9 +246,32 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
         }
     };
 
+    // Very light horizontal band shading (85 / 70 / 60) behind score lines.
+    const bandShadingPlugin: Plugin<'line'> = {
+        id: 'scoreBands',
+        beforeDatasetsDraw: (chart: Chart<'line'>) => {
+            if (!isScoreChart) return;
+            const { ctx, chartArea, scales } = chart;
+            const y = scales.y;
+            if (!y || !chartArea) return;
+            ctx.save();
+            let upper = 100;
+            for (const band of BANDS) {
+                const top = y.getPixelForValue(upper);
+                const bottom = y.getPixelForValue(band.min);
+                ctx.fillStyle = withAlpha(isDark ? band.dark : band.light, 0.07);
+                ctx.fillRect(chartArea.left, top, chartArea.right - chartArea.left, bottom - top);
+                upper = band.min;
+            }
+            ctx.restore();
+        }
+    };
+
+    const summary = ariaLabel ?? `${title}: line chart of ${keys.map(k => k.split('.').pop()?.replace(/_/g, ' ')).join(', ')} over ${data.length} points`;
+
     return (
-        <div className="w-full h-full min-h-[100px]">
-            <Line data={chartData} options={options} plugins={[verticalLinePlugin]} />
+        <div className="w-full h-full min-h-[100px]" role="img" aria-label={summary}>
+            <Line data={chartData} options={options} plugins={[bandShadingPlugin, verticalLinePlugin]} />
         </div>
     );
 }

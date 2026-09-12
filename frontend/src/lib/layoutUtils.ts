@@ -1,4 +1,4 @@
-import type { DashboardConfig, DashboardRow, WidgetInstance } from '../types';
+import type { DashboardConfig, DashboardRow, LayoutItem, WidgetInstance } from '../types';
 
 // Standard grid width (e.g., 12 columns)
 export const GRID_COLS = 12;
@@ -6,8 +6,8 @@ export const GRID_COLS = 12;
 /**
  * Converts the legacy row-based config to a flat react-grid-layout config.
  */
-export const convertToGridLayout = (config: DashboardConfig): any[] => {
-    const layout: any[] = [];
+export const convertToGridLayout = (config: DashboardConfig): LayoutItem[] => {
+    const layout: LayoutItem[] = [];
     let currentY = 0;
 
     config.rows.forEach((row: DashboardRow) => {

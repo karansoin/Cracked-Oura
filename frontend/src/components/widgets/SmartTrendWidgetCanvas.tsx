@@ -3,6 +3,9 @@ import { useMultiOuraQuery } from '@/hooks/useMultiOuraQuery';
 import { TrendChartCanvas } from './TrendChartCanvas';
 import { BarChartCanvas } from './BarChartCanvas';
 import { TableWidget } from './TableWidget';
+import { WidgetSkeleton } from './WidgetSkeleton';
+import { useIsDark } from '@/components/theme-provider';
+import { BANDS } from '@/lib/bands';
 import type { WidgetInstance } from '@/types';
 import { subDays, subWeeks, subMonths, subYears, subHours, subMinutes, format, parseISO } from 'date-fns';
 
@@ -18,6 +21,11 @@ interface SmartTrendWidgetCanvasProps {
 }
 
 export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: SmartTrendWidgetCanvasProps) {
+    const isDark = useIsDark();
+    // Temperature deviation bars diverge around 0: beyond +/-0.5 degC uses the "Pay attention" colour.
+    const isTemperatureDeviation = (widget.config.dataKey ?? '').endsWith('temperature_deviation');
+    const baseColor = widget.config.color || (isDark ? BANDS[1].dark : BANDS[1].light);
+    const attentionColor = isDark ? BANDS[3].dark : BANDS[3].light;
     // Calculate date range based on config
     const { startDate, endDate } = useMemo(() => {
         const primaryKey = widget.config.dataKey || '';
@@ -149,8 +157,15 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
         );
     }
 
-    if (loading) return <div className="flex items-center justify-center h-full text-xs text-muted-foreground">Loading...</div>;
-    if (error) return <div className="flex items-center justify-center h-full text-xs text-destructive">Error: {error}</div>;
+    if (loading) return <WidgetSkeleton kind={chartType === 'table' ? 'table' : 'chart'} />;
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-center p-4 rounded-lg bg-secondary/10" role="alert">
+                <span className="text-sm font-medium text-foreground">Couldn't load this data</span>
+                <span className="text-xs text-muted-foreground mt-1 max-w-[240px] truncate" title={error}>{error}</span>
+            </div>
+        );
+    }
 
     if (aggregatedData.data.length === 0) {
         return (
@@ -170,7 +185,9 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
                     data={aggregatedData.data}
                     dataKey={keysToFetch[0]}
                     categoryKey="date"
-                    color={widget.config.color || '#8AB4F8'}
+                    color={widget.config.color || '#0072B2'}
+                    ariaLabel={`${widget.title}: bar chart of ${keysToFetch[0]} over ${aggregatedData.data.length} points`}
+                    barColor={isTemperatureDeviation ? (v) => (v !== null && Math.abs(v) > 0.5 ? attentionColor : baseColor) : undefined}
                 />
             ) : chartType === 'table' ? (
                 <TableWidget
@@ -184,11 +201,10 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
                     dataKey={keysToFetch[0]}
                     dataKeys={keysToFetch}
                     title={widget.title}
-                    color={widget.config.color || '#8AB4F8'}
+                    color={widget.config.color || '#0072B2'}
                     showPoints={widget.config.showPoints}
                 />
             )}
-
         </div>
     );
 }

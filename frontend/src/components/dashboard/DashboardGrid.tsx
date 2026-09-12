@@ -28,6 +28,8 @@ interface DashboardGridProps {
 
     data?: unknown;
     selectedDate: Date;
+    /** True while the selected day's payload is loading (widgets show skeletons). */
+    isLoading?: boolean;
 }
 
 /** Keep only the fields we persist from react-grid-layout's richer layout items. */
@@ -47,7 +49,8 @@ export function DashboardGrid({
     onWidgetChange,
     onDeleteWidget,
     data,
-    selectedDate
+    selectedDate,
+    isLoading = false
 }: DashboardGridProps) {
     const dateString = format(selectedDate, 'yyyy-MM-dd');
 
@@ -74,9 +77,12 @@ export function DashboardGrid({
     }, [layout, widgets]);
 
     const renderWidget = (widget: WidgetInstance) => {
+        const layoutItem = layoutById.get(widget.id);
+        const compact = (layoutItem?.h ?? DEFAULT_WIDGET_H) <= 1;
+
         // This ensures the button is always visible for charts that support it, INCLUDING intraday ones (so user can pick "Selected Day")
         const supportsDateRange = widget.type === 'trend' || widget.type === 'bar';
-        const showDateSelector = (!!widget.config.dateRange || supportsDateRange) && widget.type !== 'table';
+        const showDateSelector = !compact && (!!widget.config.dateRange || supportsDateRange) && widget.type !== 'table';
 
         return (
             <WidgetCard
@@ -86,6 +92,7 @@ export function DashboardGrid({
                 onEdit={() => onEditWidget?.(widget)}
                 onDelete={() => onDeleteWidget?.(widget.id)}
                 className="h-full"
+                compact={compact}
                 headerContent={showDateSelector && (
                     <DateRangeSelector
                         widget={widget}
@@ -95,9 +102,9 @@ export function DashboardGrid({
                     />
                 )}
             >
-                <div className="h-full pt-2">
-                    <ErrorBoundary>
-                        <WidgetRegistry widget={widget} data={data} date={dateString} />
+                <div className={cn("h-full", !compact && "pt-2")}>
+                    <ErrorBoundary resetKeys={[dateString, widget.type, widget.config.dataKey]}>
+                        <WidgetRegistry widget={widget} data={data} date={dateString} compact={compact} isLoading={isLoading} />
                     </ErrorBoundary>
                 </div>
             </WidgetCard>

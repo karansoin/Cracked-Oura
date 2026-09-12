@@ -1,10 +1,16 @@
-import { format } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
 import { ScoreGaugeCanvas } from './widgets/ScoreGaugeCanvas';
 import { SmartTrendWidgetCanvas } from './widgets/SmartTrendWidgetCanvas';
 import { MetricWidget } from './widgets/MetricWidget';
 import { BarChartCanvas } from './widgets/BarChartCanvas';
 import { RadarChartCanvas } from './widgets/RadarChartCanvas';
 import { JSONWidget } from './widgets/JSONWidget';
+import { HypnogramCanvas } from './widgets/HypnogramCanvas';
+import { ContributorsWidget } from './widgets/ContributorsWidget';
+import { WidgetSkeleton } from './widgets/WidgetSkeleton';
+import { useAppStatus } from '@/contexts/AppStatusContext';
+import { getBand } from '@/lib/bands';
+import { formatDurationSeconds, formatMinutes, formatTemperatureDeviation } from '@/lib/format';
 import type { WidgetInstance } from '@/types';
 
 interface WidgetRegistryProps {
@@ -12,6 +18,10 @@ interface WidgetRegistryProps {
     data?: unknown;
     date?: string;
     onUpdate?: (updates: Partial<WidgetInstance>) => void;
+    /** Single-row widgets render a condensed layout. */
+    compact?: boolean;
+    /** True while the day payload for `date` is still loading. */
+    isLoading?: boolean;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -19,13 +29,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isFiniteNumber = (value: unknown): value is number =>
     typeof value === 'number' && Number.isFinite(value);
-
-/** Format a whole number of minutes as `Xh Ym`, omitting the hours when zero. */
-const formatMinutes = (totalMinutes: number): string => {
-    const hours = Math.floor(totalMinutes / 60);
-    const mins = Math.round(totalMinutes % 60);
-    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-};
 
 /**
  * Duration fields in the day payload are in SECONDS
@@ -38,7 +41,12 @@ const durationUnit = (key: string): 'minutes' | 'seconds' | null => {
     return null;
 };
 
-export const WidgetRegistry = ({ widget, data, date, onUpdate }: WidgetRegistryProps) => {
+/** Widget types whose content comes from the single-day payload (so they show a skeleton while it loads). */
+const DAY_PAYLOAD_TYPES = new Set(['score', 'metric', 'hypnogram', 'contributors', 'radar']);
+
+export const WidgetRegistry = ({ widget, data, date, onUpdate, compact = false, isLoading = false }: WidgetRegistryProps) => {
+    const { units } = useAppStatus();
+
     // Helper to resolve dot notation
     const resolveData = (path: string): unknown => {
         if (!path || path === 'root') return data;
@@ -51,17 +59,33 @@ export const WidgetRegistry = ({ widget, data, date, onUpdate }: WidgetRegistryP
     };
 
     const resolvedDate = date || format(new Date(), 'yyyy-MM-dd');
+    const dayLabel = (() => {
+        const d = parseISO(resolvedDate);
+        return isValid(d) ? format(d, 'EEE d MMM') : resolvedDate;
+    })();
+
+    if (isLoading && DAY_PAYLOAD_TYPES.has(widget.type)) {
+        const kind = widget.type === 'score' ? 'gauge'
+            : widget.type === 'metric' ? 'metric'
+                : widget.type === 'contributors' ? 'list'
+                    : 'chart';
+        return <WidgetSkeleton kind={kind} compact={compact} />;
+    }
 
     switch (widget.type) {
         case 'score': {
-            const raw = resolveData(widget.config.dataKey || '');
-            const scoreLabel = widget.config.dataKey || 'Score';
-            const hasScore = isFiniteNumber(raw);
+            const key = widget.config.dataKey || '';
+            const raw = resolveData(key);
+            const scoreLabel = key || 'Score';
+            // Distinguish "no row for this day" from "row exists but the ring did not compute a score".
+            const parent = key.includes('.') ? resolveData(key.slice(0, key.lastIndexOf('.'))) : undefined;
+            const emptyHint = parent === null || parent === undefined ? 'No data for this day' : 'No score (ring data)';
             return (
                 <ScoreGaugeCanvas
-                    score={hasScore ? raw : 0}
-                    title={hasScore ? scoreLabel : `${scoreLabel} — No data`}
+                    score={isFiniteNumber(raw) ? raw : null}
+                    title={scoreLabel}
                     color={widget.config.color}
+                    emptyHint={emptyHint}
                 />
             );
         }
@@ -77,29 +101,70 @@ export const WidgetRegistry = ({ widget, data, date, onUpdate }: WidgetRegistryP
             const key = widget.config.dataKey || '';
             const raw = resolveData(key);
             const metricLabel = key || 'Metric';
+            const field = key.split('.').pop() ?? key;
 
             let displayValue: string | number = '—';
             let unit = widget.config.unit;
+            let hint: string | undefined;
 
             if (isFiniteNumber(raw)) {
                 const durationIn = durationUnit(key);
-                if (durationIn) {
-                    const minutes = durationIn === 'seconds' ? Math.round(raw / 60) : raw;
-                    displayValue = formatMinutes(minutes);
+                if (field === 'temperature_deviation') {
+                    displayValue = formatTemperatureDeviation(raw, units);
+                    unit = '';
+                } else if (durationIn) {
+                    displayValue = durationIn === 'seconds' ? formatDurationSeconds(raw) : formatMinutes(raw);
                     unit = ''; // Unit is built-in
+                } else if (field === 'score') {
+                    displayValue = Math.round(raw);
+                    hint = getBand(raw)?.label;
                 } else {
-                    displayValue = raw;
+                    displayValue = Number.isInteger(raw) ? raw : Number(raw.toFixed(2));
                 }
             } else if (typeof raw === 'string' && raw !== '') {
                 displayValue = raw;
+            } else if (field === 'score' && raw === null) {
+                hint = 'No score (ring data)';
             }
 
             return (
                 <MetricWidget
                     value={displayValue}
-                    label={metricLabel}
+                    label={compact ? undefined : metricLabel}
                     unit={unit}
                     color={widget.config.color}
+                    compact={compact}
+                    hint={hint}
+                />
+            );
+        }
+        case 'hypnogram': {
+            const key = widget.config.dataKey || 'sleep_session.sleep_phase_5_min';
+            const parentPath = key.includes('.') ? key.slice(0, key.lastIndexOf('.')) : key;
+            const session = resolveData(parentPath);
+            const phases = resolveData(key);
+            const startTime = isRecord(session)
+                ? (typeof session.bedtime_start === 'string' ? session.bedtime_start
+                    : typeof session.start_time === 'string' ? session.start_time : null)
+                : null;
+            return (
+                <HypnogramCanvas
+                    phases={phases}
+                    startTime={startTime}
+                    dayLabel={dayLabel}
+                    compact={compact}
+                />
+            );
+        }
+        case 'contributors': {
+            const key = widget.config.dataKey || '';
+            const raw = resolveData(key);
+            const parent = key.includes('.') ? resolveData(key.slice(0, key.lastIndexOf('.'))) : undefined;
+            return (
+                <ContributorsWidget
+                    contributors={raw}
+                    title={widget.title}
+                    emptyTitle={parent === null || parent === undefined ? 'No data for this day' : 'No score (ring data)'}
                 />
             );
         }
@@ -122,6 +187,7 @@ export const WidgetRegistry = ({ widget, data, date, onUpdate }: WidgetRegistryP
                         dataKey="value"
                         categoryKey="name"
                         color={widget.config.color}
+                        ariaLabel={`${widget.title}: bar chart`}
                     />
                 );
             }

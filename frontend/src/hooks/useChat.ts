@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
+import type { AgentStep } from '@/components/dashboard/ThoughtsDisplay';
 
 export interface Message {
     role: 'user' | 'assistant';
     content: string;
-    thoughts?: any[];
+    thoughts?: AgentStep[];
 }
 
 const STORAGE_KEY = 'oura_chat_history';
@@ -43,7 +44,8 @@ export function useChat() {
             const assistantMessage: Message = {
                 role: 'assistant',
                 content: data.response,
-                thoughts: data.thoughts
+                // The backend's agent steps are untyped JSON; ThoughtsDisplay renders them defensively.
+                thoughts: data.thoughts as AgentStep[] | undefined
             };
             setMessages(prev => [...prev, assistantMessage]);
         } catch (error) {

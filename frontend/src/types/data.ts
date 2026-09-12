@@ -1,8 +1,8 @@
 export interface TimeSeriesPoint {
     date: string; // ISO string
     value: number | null;
-    original?: any; // Keep original data for tooltips
-    [key: string]: any; // Allow dynamic keys for multi-series
+    original?: unknown; // Keep original data for tooltips
+    [key: string]: unknown; // Allow dynamic keys for multi-series
 }
 
 export interface NormalizedData {
