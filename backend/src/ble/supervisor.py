@@ -104,11 +104,22 @@ class RingSupervisor:
         elif t == "log":
             self.log.append({k: ev.get(k) for k in ("ts", "level", "msg")})
         elif t == "hr":
+            if ev.get("bpm") is None:
+                return  # invalid / unknown-validity beat: shown in the stream, not analysed
             self.live_samples.append({k: ev.get(k) for k in ("t", "bpm", "ibi_ms")})
             if self.live.get("active"):
                 self._live_ibi.append([float(ev.get("t") or 0), float(ev.get("ibi_ms") or 0)])
                 self.live["beats"] = self.live.get("beats", 0) + 1
                 self.live["last_bpm"] = ev.get("bpm")
+                if ev.get("skin_temp_c") is not None:
+                    self.live["skin_temp_c"] = ev.get("skin_temp_c")
+                if ev.get("source"):
+                    self.live["hr_source"] = ev.get("source")
+        elif t in ("hr_fallback", "hr_status", "ring_state"):
+            if self.live.get("active"):
+                self.live["hint"] = ev.get("message") or self.live.get("hint")
+                if t == "ring_state":
+                    self.live["ring_state"] = ev.get("state")
         elif t == "acm":
             if self.live.get("active"):
                 self._live_acm.extend(ev.get("samples") or [])
