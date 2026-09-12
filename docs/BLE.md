@@ -80,8 +80,45 @@ here from the documented byte layouts; see `backend/src/ble/`.
   `10 09 <next_cursor> 00 ff ff ff ff` (acknowledge). The cursor is the ring's
   own clock in 100 ms ticks; `0x85` beacons (exact) and `0x42` time-sync events
   (±256 s) map it to wall-clock time.
-* Live heart rate: `2f 03 22 02 03` (daytime HR, connected-live mode) then
-  parse `2f xx 28 02 …` notifications; restore automatic mode afterwards.
+* Live heart rate (as the phone app does it): `1c 01 3f` (async notifications),
+  `2f 02 20 02` (status read), `2f 03 22 02 03` (daytime HR → CONNECTED_LIVE),
+  `2f 03 26 02 02` (LATEST subscription). The ring then pushes one
+  `2f 0f 28 02 <status> <state> <t:u16> <ibi:u16> <cqi:i32> <temp:i16> <pqi:u8>`
+  frame per beat: 12-bit inter-beat interval plus a validity nibble
+  (0 unknown, 1 valid, 2 invalid, 3 corrected) and the skin temperature in
+  centi-°C. The ring drops out of live mode after ~20 s, so the app re-sends
+  the mode and subscription every 15 s and restores AUTOMATIC (never OFF)
+  when done.
+* Some firmware (Ring 4 fw 2.12) acknowledges live mode but never pushes.
+  After 10 s without a push the app falls back to reading the ring's event
+  log every 2 s (`28 01 00`, GetEvent, ack) and takes beats from the `0x80`
+  green-IBI and `0x60` IBI records; every drained event is stored like a
+  normal sync, so nothing is lost.
+* Live accelerometer: `06 07 20 00 00 00 <minutes:u16> 00` → frames
+  `33 0e <rate_hz> <seq> x y z x y z` (two i16 samples, ≈50 Hz). Raw counts;
+  the app calibrates counts-per-g from a still second (`|a| = 1 g`). The ring
+  stops on its own after `minutes`; the app re-arms 20 s before that and
+  sends `06 04 00 00 00 00` on exit.
+* There is no live raw PPG on consumer rings: the raw-data sampler refuses
+  configuration, so SpO2 R/PI (`0x8b`) and CVA raw PPG (`0x81`) only arrive
+  through the event log.
+
+## Live sessions
+
+**Live** in the app runs guided recordings over the streams above:
+
+| Session | What it records | What it reports |
+|---|---|---|
+| Steadiness | 30 s rest + 30 s postural hold, accelerometer 50 Hz | dominant frequency, 3.5–7.5 vs 7.5–12 Hz band power, RMS and estimated displacement, peak sharpness, jitter, steadiness score, personal trend |
+| Workout | accelerometer + beats | activity timeline (walk / run / cycle / strength / active), cadence, steps, reps, HR zones, HR recovery at 1 and 2 min, Banister and Edwards training load |
+| Breathing | paced at 4.5–7 breaths/min, beats | resonance (0.08–0.12 Hz share), RSA amplitude, adherence, breathing rate, pre/post lnRMSSD, stress index |
+| Orthostatic | lie/sit 1–3 min then stand 3 min | stand detected from the accelerometer; supine, peak and standing HR, RMSSD ratio |
+| Free | anything | everything above that applies |
+
+Everything is a wellness measurement with the formula shown next to the
+number; nothing here diagnoses anything. Sessions can be simulated without a
+ring (`simulate: still|tremor|walk|run|reps|breathing|orthostatic|ring4`) so
+the whole pipeline is testable on any machine.
 
 ## macOS notes
 
