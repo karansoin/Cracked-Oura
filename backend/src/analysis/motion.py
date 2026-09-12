@@ -114,7 +114,13 @@ def classify_windows(samples: Sequence[Sequence[float]], fs: float = 50.0, windo
     xyz = np.asarray(samples, dtype=float).reshape(-1, 3)
     w = int(window_s * fs)
     out: List[Dict] = []
-    for start in range(0, xyz.shape[0] - w + 1, w):
+    n = xyz.shape[0]
+    starts = list(range(0, max(n - w + 1, 1), w))
+    # keep a trailing partial window when it holds at least 4 s of data
+    tail = starts[-1] + w if starts else 0
+    if n - tail >= int(4 * fs):
+        starts.append(tail)
+    for start in starts:
         r = analyze_motion(xyz[start : start + w], fs, scale_g_per_lsb)
         out.append({"t_s": start / fs, "activity": r.activity, "confidence": r.confidence, "cadence_spm": r.cadence_spm, "steps": r.steps, "reps": r.reps, "intensity_rms_g": r.intensity_rms_g})
     return out

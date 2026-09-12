@@ -249,3 +249,23 @@ class RingState(Base):
     battery_percent: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     battery_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     events_total: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class LiveSession(Base):
+    """A recorded live-stream session (steadiness test, workout, breathing, free)."""
+
+    __tablename__ = "live_session"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    serial: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String, index=True)
+    simulated: Mapped[bool] = mapped_column(Boolean, default=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    duration_s: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    fs_hz: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    scale_g_per_lsb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    acm: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)      # [[x,y,z], ...] raw counts
+    ibi: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)      # [[t_s, ibi_ms], ...]
+    metrics: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

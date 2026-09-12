@@ -18,6 +18,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import signal
 import sys
 from typing import Any, Dict
 
@@ -32,6 +34,17 @@ async def _run(cmd: Dict[str, Any]) -> int:
 
     mgr = RingManager()
     q = mgr.listen()
+
+    def _on_term(*_args):
+        if mgr.stop_event is not None and not mgr.stop_event.is_set():
+            mgr.stop_event.set()  # live session: finish gracefully and report
+        else:
+            os._exit(143)
+
+    try:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, _on_term)
+    except (NotImplementedError, RuntimeError):  # pragma: no cover - Windows
+        signal.signal(signal.SIGTERM, _on_term)
 
     async def relay():
         while True:
@@ -54,6 +67,13 @@ async def _run(cmd: Dict[str, Any]) -> int:
         elif op == "live":
             await mgr.live(address, float(cmd.get("duration", 60)))
             data = list(mgr.live_samples)
+        elif op == "live_session":
+            data = await mgr.live_session(
+                address,
+                float(cmd.get("duration", 60)),
+                tuple(cmd.get("streams") or ("acm", "hr")),
+                simulate=cmd.get("simulate"),
+            )
         else:
             raise ValueError(f"unknown op {op!r}")
         ok = True

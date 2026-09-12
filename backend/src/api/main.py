@@ -50,8 +50,10 @@ from backend.src.database import init_db  # noqa: E402
 
 try:
     from backend.src.api.ble_routes import router as ble_router  # noqa: E402
+    from backend.src.api.live_routes import router as live_router  # noqa: E402
 except Exception as e:  # pragma: no cover - BLE stack optional at import time
     ble_router = None
+    live_router = None
     logger.warning("BLE router unavailable: %s", e)
 
 
@@ -119,6 +121,8 @@ app.add_middleware(
 app.include_router(router)
 if ble_router is not None:
     app.include_router(ble_router)
+if live_router is not None:
+    app.include_router(live_router)
 
 
 def _port() -> int:

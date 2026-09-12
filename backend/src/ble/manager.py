@@ -52,6 +52,7 @@ class RingManager:
         self._bleak_client = None
         self.last_scan_at: Optional[float] = None
         self.bluetooth_ok: Optional[bool] = None
+        self.stop_event: Optional["asyncio.Event"] = None
 
     # ------------------------------------------------------------ status
     def _set(self, state: str, message: str = "", **extra: Any) -> None:
@@ -471,6 +472,35 @@ class RingManager:
 
     def start_live(self, address: Optional[str], duration: float = 60.0) -> bool:
         return self._start(lambda: self.live(address, duration), "live")
+
+    async def live_session(self, address: Optional[str], duration: float, streams=("acm", "hr"), simulate: Optional[str] = None) -> Dict[str, Any]:
+        """Stream accelerometer and/or beats for ``duration`` seconds, emitting batches.
+
+        ``simulate`` names a synthetic scenario ('still', 'tremor', 'walk', 'run',
+        'reps') and bypasses Bluetooth entirely (development and tests)."""
+        from .live import LiveSession
+
+        if simulate:
+            from .simulator import SimulatedRing
+
+            ring = SimulatedRing(scenario=str(simulate))
+            rc = RingClient(ring, quiet=0.2)
+            self._client = rc
+            self.ring = {"serial": f"SIM-{simulate}", "model": "Simulated ring", "simulated": True}
+            self._set("connecting", f"Simulated ring ({simulate})")
+        else:
+            rc = await self._connect(address)
+            key = self._load_key(self.ring["serial"])
+            if key is None:
+                raise RingError("Pair the ring first.")
+            self._set("authenticating", "Authenticating…")
+            await rc.authenticate(key)
+        self._set("live", f"Live session ({', '.join(streams)}) for {int(duration)} s… wear the ring.")
+        self.stop_event = asyncio.Event()
+        session = LiveSession(rc, streams, emit=self._emit, stop_event=self.stop_event)
+        summary = await session.run(duration)
+        self._set("idle", f"Live session ended: {summary['acm_samples']} accelerometer samples, {summary['beats']} beats.")
+        return summary
 
     # ---------------------------------------------------------- info only
     async def probe(self, address: Optional[str]) -> Dict[str, Any]:
