@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useIsDark } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
-import { formatClock, formatDay, formatDurationSeconds } from '@/lib/format';
+import { formatClock, formatDay, formatElapsed } from '@/lib/format';
 import { SERIES_PALETTE } from '@/lib/bands';
 import { KIND_META, type SessionDetail, type SessionMetrics, type TimelineWindow } from '@/lib/live-api';
 import { steadinessSummary } from '@/lib/live-copy';
@@ -45,7 +45,7 @@ export function TimelineBar({ windows, total }: { windows: TimelineWindow[]; tot
                 {windows.map((w, i) => {
                     const next = windows[i + 1]?.t_s ?? total;
                     const width = Math.max(((next - w.t_s) / Math.max(total, 1)) * 100, 0.5);
-                    return <div key={w.t_s} style={{ width: `${width}%`, backgroundColor: ACTIVITY_COLOR[w.activity] ?? '#9ca3af' }} title={`${formatDurationSeconds(w.t_s)} · ${w.activity}${w.cadence_spm ? ` · ${Math.round(w.cadence_spm)} spm` : ''}`} />;
+                    return <div key={w.t_s} style={{ width: `${width}%`, backgroundColor: ACTIVITY_COLOR[w.activity] ?? '#9ca3af' }} title={`${formatElapsed(w.t_s)} · ${w.activity}${w.cadence_spm ? ` · ${Math.round(w.cadence_spm)} spm` : ''}`} />;
                 })}
             </div>
             <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -95,7 +95,7 @@ export function SessionResult({ session, onNotes, compact = false }: { session: 
                 {m.hr_source && <Badge variant="secondary">beats via {m.hr_source === 'push' ? 'live push' : 'event log'}</Badge>}
                 {(m.options?.tags ?? []).map(t => <Badge key={t} variant="outline">{t}</Badge>)}
                 <span className="ml-auto text-xs text-muted-foreground">
-                    {session.started_at ? `${formatDay(session.started_at)} ${formatClock(session.started_at)}` : ''} · {formatDurationSeconds(duration)} · {m.beats} beats · {m.acm_samples} samples{m.seq_gaps ? ` · ${m.seq_gaps} gaps` : ''}
+                    {session.started_at ? `${formatDay(session.started_at)} ${formatClock(session.started_at)}` : ''} · {formatElapsed(duration)} · {m.beats} beats · {m.acm_samples} samples{m.seq_gaps ? ` · ${m.seq_gaps} gaps` : ''}
                 </span>
             </div>
 
@@ -194,7 +194,7 @@ export function SessionResult({ session, onNotes, compact = false }: { session: 
                     <CardHeader className="pb-2"><CardTitle className="text-sm">Orthostatic response</CardTitle></CardHeader>
                     <CardContent>
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                            <Stat label="Stand detected" value={ortho.stand ? formatDurationSeconds(ortho.stand.t_stand_s) : 'no'} hint={ortho.stand?.angle_deg != null ? `gravity turned ${Math.round(ortho.stand.angle_deg)}°` : ortho.quality} />
+                            <Stat label="Stand detected" value={ortho.stand ? formatElapsed(ortho.stand.t_stand_s) : 'no'} hint={ortho.stand?.angle_deg != null ? `gravity turned ${Math.round(ortho.stand.angle_deg)}°` : ortho.quality} />
                             <Stat label="Resting HR" value={ortho.hr_supine} unit="bpm" hint="last 60 s before standing" />
                             <Stat label="Peak rise" value={ortho.delta_peak != null ? `+${ortho.delta_peak}` : null} unit="bpm" hint={`peak ${ortho.hr_peak ?? '—'} within 30 s`} />
                             <Stat label="Sustained rise" value={ortho.delta_stand != null ? `+${ortho.delta_stand}` : null} unit="bpm" hint={`standing ${ortho.hr_stand ?? '—'} bpm at 1–3 min`} />

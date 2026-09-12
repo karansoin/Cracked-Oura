@@ -13,6 +13,7 @@ import { WidgetEditorPanel } from "@/components/dashboard/WidgetEditorPanel";
 import { ChatPanel } from "@/components/dashboard/ChatPanel";
 import { ChatPage } from "@/components/dashboard/ChatPage";
 import { RingPage } from "@/components/ring/RingPage";
+import { LivePage } from "@/components/live/LivePage";
 import { TrendsView } from "@/components/trends/TrendsView";
 import { OnboardingEmptyState } from "@/components/dashboard/OnboardingEmptyState";
 import { ShortcutSheet } from "@/components/dashboard/ShortcutSheet";
@@ -123,6 +124,7 @@ function DashboardApp() {
 
     const renderMain = () => {
         if (activeView === 'ring') return <RingPage />;
+        if (activeView === 'live') return <LivePage />;
         if (activeView === 'trends') {
             if (hasData === false) {
                 return (
@@ -219,6 +221,7 @@ function DashboardApp() {
                 onChatPageSelect={() => setActiveView('chat-page')}
                 onRingPageSelect={() => setActiveView('ring')}
                 onTrendsPageSelect={() => setActiveView('trends')}
+                onLivePageSelect={() => setActiveView('live')}
                 dataSyncHint={dataSyncHint}
 
                 headerActions={

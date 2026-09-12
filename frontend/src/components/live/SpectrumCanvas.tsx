@@ -11,8 +11,8 @@ interface SpectrumCanvasProps {
 }
 
 const BANDS: Array<{ lo: number; hi: number; label: string; color: string }> = [
-    { lo: 3.5, hi: 7.5, label: '3.5–7.5 Hz · rest-type', color: '#D55E00' },
-    { lo: 7.5, hi: 12, label: '7.5–12 Hz · physiological', color: '#0072B2' },
+    { lo: 3.5, hi: 7.5, label: 'rest-type 3.5–7.5 Hz', color: '#D55E00' },
+    { lo: 7.5, hi: 12, label: 'physiological 7.5–12 Hz', color: '#0072B2' },
 ];
 
 /** Power spectrum on a log axis with the tremor bands shaded and the dominant peak marked. */
@@ -30,7 +30,7 @@ export function SpectrumCanvas({ f, p, dominantHz, height = 150, ariaLabel }: Sp
         if (!ctx) return;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, cssW, height);
-        const padL = 30, padR = 8, padT = 20, padB = 20;
+        const padL = 30, padR = 8, padT = 30, padB = 20;
         const w = cssW - padL - padR, h = height - padT - padB;
         const tick = isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight;
         const grid = isDark ? withAlpha('#ffffff', 0.08) : withAlpha('#000000', 0.08);
@@ -39,12 +39,14 @@ export function SpectrumCanvas({ f, p, dominantHz, height = 150, ariaLabel }: Sp
         const vals = p.map(v => Math.log10(Math.max(v, 1e-12)));
         const lo = vals.length ? Math.min(...vals) : -12, hi = vals.length ? Math.max(...vals) : 0;
         const y = (lv: number) => padT + (1 - (lv - lo) / Math.max(hi - lo, 1e-9)) * h;
-        for (const b of BANDS) {
+        BANDS.forEach((b, i) => {
             ctx.fillStyle = withAlpha(b.color, isDark ? 0.14 : 0.1);
             ctx.fillRect(x(b.lo), padT, x(b.hi) - x(b.lo), h);
-            ctx.fillStyle = tick; ctx.font = '10px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-            ctx.fillText(b.label, x(b.lo) + 3, 4);
-        }
+            ctx.font = '10px ui-sans-serif, system-ui, sans-serif'; ctx.textBaseline = 'top';
+            ctx.fillStyle = b.color; ctx.fillRect(x(b.lo) + 3, 5 + i * 12, 8, 8);
+            ctx.fillStyle = tick; ctx.textAlign = 'left';
+            ctx.fillText(b.label, x(b.lo) + 14, 4 + i * 12);
+        });
         ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.fillStyle = tick; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
         for (let hz = 0; hz <= fMax; hz += 5) {
             const xx = Math.round(x(hz)) + 0.5;

@@ -67,3 +67,17 @@ def test_hung_worker_is_stopped_with_hint(monkeypatch):
     asyncio.run(go())
     assert sup.state == "error" and "did not finish" in (sup.error or "")
     assert not sup.busy
+
+
+def test_worker_death_closes_a_live_session():
+    sup = RingSupervisor()
+    sup.live = {"active": True, "id": "abc", "kind": "free", "started": 0.0}
+    seen = []
+    q = sup.listen()
+    sup._finish_error("worker died", state="unavailable")
+    while not q.empty():
+        seen.append(q.get_nowait())
+    assert sup.live["active"] is False and sup.live["last_error"] == "worker died"
+    assert any(e.get("type") == "session_failed" and e.get("id") == "abc" for e in seen)
+    st = sup.live_status()
+    assert st["active"] is False and st["error"] == "worker died"

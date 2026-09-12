@@ -94,6 +94,10 @@ export function useKeyboardShortcuts() {
                     e.preventDefault();
                     setActiveView('trends');
                     return;
+                case '4':
+                    e.preventDefault();
+                    setActiveView('live');
+                    return;
                 default:
                     return;
             }

@@ -14,5 +14,6 @@ export const SHORTCUTS: readonly ShortcutRow[] = [
     { keys: ['1'], action: 'Ring page' },
     { keys: ['2'], action: 'AI Analyst' },
     { keys: ['3'], action: 'Trends' },
+    { keys: ['4'], action: 'Live sessions' },
     { keys: ['?'], action: 'Show this sheet' },
 ];

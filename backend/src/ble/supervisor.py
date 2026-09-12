@@ -364,6 +364,11 @@ class RingSupervisor:
 
     def _finish_error(self, message: str, state: str = "error") -> None:
         self.state, self.message, self.error, self.progress = state, message, message, None
+        if self.live.get("active"):
+            # a live session whose worker died never produced a result: close it out
+            self.live["active"] = False
+            self.live["last_error"] = message
+            self._emit({"type": "session_failed", "id": self.live.get("id"), "message": message})
         self._log("error", message)
         self._emit({"type": "state", "state": state, "message": message})
 

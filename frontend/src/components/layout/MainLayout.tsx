@@ -44,6 +44,7 @@ interface MainLayoutProps {
     onChatPageSelect?: () => void;
     onRingPageSelect?: () => void;
     onTrendsPageSelect?: () => void;
+    onLivePageSelect?: () => void;
     dataSyncHint?: string;
 }
 
@@ -74,13 +75,15 @@ export function MainLayout({
     onChatPageSelect,
     onRingPageSelect,
     onTrendsPageSelect,
+    onLivePageSelect,
     dataSyncHint,
 }: MainLayoutProps) {
     const activeDashboardName = dashboards.find(d => d.id === activeDashboardId)?.name || "Dashboard";
     const title = activeView === 'ring' ? 'Ring'
         : activeView === 'chat-page' ? 'AI Analyst'
             : activeView === 'trends' ? 'Trends'
-                : activeDashboardName;
+                : activeView === 'live' ? 'Live'
+                    : activeDashboardName;
     const showDayStepper = activeView === 'dashboard' || activeView === 'trends';
 
     const shiftDay = (delta: number) => {
@@ -112,6 +115,7 @@ export function MainLayout({
                 onChatPageSelect={onChatPageSelect}
                 onRingPageSelect={onRingPageSelect}
                 onTrendsPageSelect={onTrendsPageSelect}
+                onLivePageSelect={onLivePageSelect}
                 dataSyncHint={dataSyncHint}
             />
 

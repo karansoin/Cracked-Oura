@@ -38,7 +38,9 @@ class HrvResult:
         return asdict(self)
 
 
-def analyze_hrv(ibi_ms: Sequence[float]) -> HrvResult:
+def analyze_hrv(ibi_ms: Sequence[float], breathing_lo_hz: float = 0.15) -> HrvResult:
+    """``breathing_lo_hz``: lower edge of the respiratory band (0.15 Hz = 9/min for
+    spontaneous breathing; paced sessions at 6/min need 0.08)."""
     x, rejected = clean_ibi(ibi_ms)
     if x.size < 10:
         return HrvResult(int(x.size), rejected, float(60000 / x.mean()) if x.size else 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -46,7 +48,7 @@ def analyze_hrv(ibi_ms: Sequence[float]) -> HrvResult:
     rmssd = float(np.sqrt(np.mean(d**2)))
     sdnn = float(np.std(x, ddof=1))
     pnn50 = float(np.mean(np.abs(d) > 50) * 100)
-    br, conf, lfhf = breathing_from_ibi(x)
+    br, conf, lfhf = breathing_from_ibi(x, lo_hz=breathing_lo_hz)
     return HrvResult(
         n_beats=int(x.size), rejected=rejected, mean_hr=round(float(60000 / x.mean()), 1),
         rmssd_ms=round(rmssd, 1), sdnn_ms=round(sdnn, 1), pnn50=round(pnn50, 1),
@@ -55,9 +57,9 @@ def analyze_hrv(ibi_ms: Sequence[float]) -> HrvResult:
     )
 
 
-def breathing_from_ibi(ibi_ms: np.ndarray, fs_resample: float = 4.0) -> Tuple[float, float, float]:
+def breathing_from_ibi(ibi_ms: np.ndarray, fs_resample: float = 4.0, lo_hz: float = 0.15) -> Tuple[float, float, float]:
     """Respiratory rate from respiratory sinus arrhythmia: resample the IBI tachogram
-    at 4 Hz and find the HF (0.15–0.5 Hz) peak. Returns (breaths/min, confidence, LF/HF)."""
+    at 4 Hz and find the HF (``lo_hz``–0.5 Hz) peak. Returns (breaths/min, confidence, LF/HF)."""
     if ibi_ms.size < 20:
         return 0.0, 0.0, 0.0
     t = np.cumsum(ibi_ms) / 1000.0
@@ -66,11 +68,12 @@ def breathing_from_ibi(ibi_ms: np.ndarray, fs_resample: float = 4.0) -> Tuple[fl
         return 0.0, 0.0, 0.0
     y = np.interp(tt, t, ibi_ms)
     f, p = welch_psd(y, fs_resample, nperseg=min(256, tt.size))
-    hf_peak, hf_pow = dominant_frequency(f, p, 0.15, 0.5)
+    hf_peak, hf_pow = dominant_frequency(f, p, lo_hz, 0.5)
     hf = band_power(f, p, 0.15, 0.4)
     lf = band_power(f, p, 0.04, 0.15)
     total = band_power(f, p, 0.04, 0.5) or 1e-9
-    conf = float(min(1.0, hf / total * 1.5))
+    resp = band_power(f, p, max(lo_hz, hf_peak - 0.03), min(0.5, hf_peak + 0.03)) if hf_peak else 0.0
+    conf = float(min(1.0, resp / total * 1.5))
     return hf_peak * 60.0, conf, float(lf / hf) if hf > 0 else 0.0
 
 

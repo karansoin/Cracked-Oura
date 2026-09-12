@@ -104,7 +104,7 @@ def analyze_motion(samples: Sequence[Sequence[float]], fs: float = 50.0, scale_g
         fs_hz=fs, duration_s=dur, activity=activity, confidence=round(float(conf), 2),
         cadence_spm=round(float(cadence_spm), 1) if activity in ("walk", "run") else round(float(cadence_spm), 1) * (strength > 0.3),
         cadence_strength=round(float(strength), 2), steps=steps if activity in ("walk", "run", "active") else 0,
-        intensity_rms_g=round(rms, 4), stride_regularity=round(float(stride_reg), 2), reps=reps,
+        intensity_rms_g=round(rms, 4), stride_regularity=round(float(stride_reg), 2), reps=reps if activity in ("strength", "active") else 0,
         spectral_entropy=round(ent, 3), energy_1_3=float(e13), energy_3_8=float(e38),
     )
 

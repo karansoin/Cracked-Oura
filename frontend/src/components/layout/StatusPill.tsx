@@ -30,7 +30,7 @@ function derivePill(status: ReturnType<typeof useAppStatus>): PillModel {
                 return { icon: Loader2, text: events ? `Syncing ring · ${events.toLocaleString()} events` : 'Syncing ring…', tone: 'busy', spin: true };
             }
             case 'live':
-                return { icon: HeartPulse, text: 'Live heart rate', tone: 'busy' };
+                return { icon: HeartPulse, text: 'Live session', tone: 'busy' };
             case 'error':
                 return { icon: AlertTriangle, text: 'Ring error', tone: 'error' };
             default:

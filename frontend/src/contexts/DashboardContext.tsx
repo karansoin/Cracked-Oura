@@ -16,7 +16,7 @@ const EMPTY_DASHBOARD: Dashboard = {
 };
 
 export type PanelType = 'none' | 'chat' | 'editor' | 'settings' | 'data';
-export type ViewType = 'dashboard' | 'chat-page' | 'ring' | 'trends';
+export type ViewType = 'dashboard' | 'chat-page' | 'ring' | 'trends' | 'live';
 
 interface DashboardContextType {
     // Dashboard State

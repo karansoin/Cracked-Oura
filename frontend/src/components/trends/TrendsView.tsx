@@ -8,6 +8,7 @@ import { WidgetSkeleton } from '@/components/widgets/WidgetSkeleton';
 import { SeriesTable } from '@/components/widgets/SeriesTable';
 import { TrendsChart, type XY } from './TrendsChart';
 import { TrendsRangeSelector } from './TrendsRangeSelector';
+import { BaselinesCard } from '@/components/live/BaselinesCard';
 import { useDashboard } from '@/contexts/DashboardContext';
 import { useAppStatus } from '@/contexts/AppStatusContext';
 import { api } from '@/lib/api';
@@ -346,6 +347,7 @@ export function TrendsView({ latestDate }: TrendsViewProps) {
                     )}
                 </div>
             </section>
+            <BaselinesCard />
         </div>
     );
 }

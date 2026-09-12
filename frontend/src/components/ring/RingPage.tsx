@@ -51,7 +51,7 @@ const STATE_LABEL: Record<BleState, string> = {
     pairing: 'Pairing',
     authenticating: 'Authenticating',
     syncing: 'Syncing',
-    live: 'Live heart rate',
+    live: 'Live session',
     error: 'Error',
     unavailable: 'Bluetooth unavailable',
 };

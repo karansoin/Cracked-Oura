@@ -17,6 +17,7 @@ import {
     Database,
     RotateCcw,
     TrendingUp,
+    Radio,
 } from "lucide-react";
 import {
     DropdownMenu,
@@ -43,6 +44,7 @@ interface AppSidebarProps {
     onChatPageSelect?: () => void;
     onRingPageSelect?: () => void;
     onTrendsPageSelect?: () => void;
+    onLivePageSelect?: () => void;
     activeView?: ViewType;
     activePanel?: PanelType;
     /** Short line under "Data & Sync", e.g. "Up to date · 2 h ago". */
@@ -63,6 +65,7 @@ export function AppSidebar({
     onChatPageSelect,
     onRingPageSelect,
     onTrendsPageSelect,
+    onLivePageSelect,
     activeView = 'dashboard',
     activePanel = 'none',
     dataSyncHint,
@@ -180,6 +183,14 @@ export function AppSidebar({
                         active: activeView === 'trends',
                         onClick: onTrendsPageSelect,
                         shortcut: '3',
+                    })}
+                    {navButton({
+                        label: 'Live',
+                        icon: <Radio aria-hidden="true" />,
+                        active: activeView === 'live',
+                        onClick: onLivePageSelect,
+                        shortcut: '4',
+                        hint: collapsed ? undefined : 'Steadiness, workouts, breathing',
                     })}
                 </div>
 

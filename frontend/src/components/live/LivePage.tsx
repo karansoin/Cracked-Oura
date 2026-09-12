@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsDark } from '@/components/theme-provider';
 import { toastError, useAppStatus } from '@/contexts/AppStatusContext';
 import { api } from '@/lib/api';
-import { formatClock, formatDay, formatDurationSeconds } from '@/lib/format';
+import { formatClock, formatDay, formatElapsed } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
     KIND_META, liveApi,
@@ -80,10 +80,11 @@ export function LivePage() {
     const calibRef = useRef<number[]>([]);
     const chainRef = useRef<{ next: Phase | null; kind: SessionKind } | null>(null);
     const sessionIdRef = useRef<string | null>(null);
+    const startRef = useRef<(label?: Phase) => Promise<void>>(async () => undefined);
 
     const active = !!status?.active;
     const ringReady = !!ble && (ble.paired_serials?.length ?? 0) > 0 && ble.state !== 'unavailable';
-    const busyElsewhere = !!ble?.busy && !active;
+    const busyElsewhere = !active && !!ble && ['scanning', 'connecting', 'pairing', 'authenticating', 'syncing', 'live'].includes(ble.state);
 
     useEffect(() => { setDuration(KIND_META[kind].defaultDuration); }, [kind]);
 
@@ -127,13 +128,12 @@ export function LivePage() {
             if (chain?.next === 'postural') {
                 chainRef.current = { next: null, kind: chain.kind };
                 toast.info('Rest phase saved. Now hold the arm straight out for the postural phase.', { duration: 6000 });
-                window.setTimeout(() => { void start('postural'); }, 4000);
+                window.setTimeout(() => { void startRef.current('postural'); }, 4000);
             } else {
                 chainRef.current = null;
                 setPhase('idle');
             }
         } catch (err) { toastError('Session saved but could not be loaded', err); }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loadHistory]);
 
     // Live stream: accelerometer batches, beats, rolling analysis and the saved-session signal.
@@ -179,6 +179,13 @@ export function LivePage() {
                     }
                     case 'hr_fallback': case 'hr_status': {
                         setHint(String((ev as { message?: string }).message ?? ''));
+                        break;
+                    }
+                    case 'session_failed': {
+                        chainRef.current = null;
+                        setPhase('idle');
+                        toast.error(String((ev as { message?: string }).message ?? 'The session could not be completed.'));
+                        void refreshStatus();
                         break;
                     }
                     case 'session_saved': {
@@ -231,6 +238,8 @@ export function LivePage() {
             toastError('Could not start', err);
         } finally { setStarting(false); }
     };
+
+    startRef.current = start;
 
     const startClicked = () => {
         if (kind === 'steadiness' && fullTest) { chainRef.current = { next: 'postural', kind }; void start('rest'); }
@@ -297,7 +306,7 @@ export function LivePage() {
                                         <Select value={String(duration)} onValueChange={v => setDuration(Number(v))}>
                                             <SelectTrigger id="live-duration" className="h-9"><SelectValue /></SelectTrigger>
                                             <SelectContent>
-                                                {[30, 60, 120, 180, 300, 600, 900, 1800, 3600].map(s => <SelectItem key={s} value={String(s)}>{formatDurationSeconds(s)}{kind === 'steadiness' && fullTest && s === 30 ? ' per phase' : ''}</SelectItem>)}
+                                                {[30, 60, 120, 180, 300, 600, 900, 1800, 3600].map(s => <SelectItem key={s} value={String(s)}>{formatElapsed(s)}{kind === 'steadiness' && fullTest && s === 30 ? ' per phase' : ''}</SelectItem>)}
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -370,13 +379,13 @@ export function LivePage() {
                                         <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                                         {KIND_META[kind].title}{phase !== 'idle' ? ` · ${phase}` : ''}{status?.stopping ? ' · stopping' : ''}
                                     </CardTitle>
-                                    <span className="text-sm tabular-nums text-muted-foreground">{formatDurationSeconds(elapsed)} / {formatDurationSeconds(total)}</span>
+                                    <span className="text-sm tabular-nums text-muted-foreground">{formatElapsed(elapsed)} / {formatElapsed(total)}</span>
                                     <Button size="sm" variant="outline" className="ml-auto" onClick={stop} disabled={!!status?.stopping}><Square className="h-3.5 w-3.5" aria-hidden="true" />Stop &amp; analyse</Button>
                                 </div>
                                 <Progress value={Math.min(100, (elapsed / Math.max(total, 1)) * 100)} className="mt-2 h-1.5" aria-label="Session progress" />
                                 <p className="mt-1 text-xs text-muted-foreground">
                                     {kind === 'steadiness' && (phase === 'rest' ? 'Hand relaxed, forearm supported. Stay still.' : 'Arm straight out, palm down, fingers spread. Stay still.')}
-                                    {kind === 'orthostatic' && (elapsed < 120 ? `Stay lying or seated… stand up in ${formatDurationSeconds(120 - elapsed)}` : 'Stand still, arm hanging relaxed.')}
+                                    {kind === 'orthostatic' && (elapsed < 120 ? `Stay lying or seated… stand up in ${formatElapsed(120 - elapsed)}` : 'Stand still, arm hanging relaxed.')}
                                     {kind === 'breathing' && 'Follow the circle.'}
                                     {kind === 'workout' && 'Recording. Keep going; stop a couple of minutes after you finish.'}
                                     {kind === 'free' && 'Recording.'}
@@ -474,7 +483,7 @@ export function LivePage() {
 }
 
 function summaryLine(h: SessionSummary): string {
-    const parts: string[] = [formatDurationSeconds(h.duration_s ?? 0)];
+    const parts: string[] = [formatElapsed(h.duration_s ?? 0)];
     if (h.tremor && h.kind === 'steadiness') parts.push(h.tremor.quality === 'good' ? `steadiness ${h.tremor.steadiness_score}` : h.tremor.quality, `${h.tremor.dominant_hz.toFixed(1)} Hz`);
     if (h.motion && (h.kind === 'workout' || h.kind === 'free')) parts.push(h.motion.activity, h.motion.cadence_spm ? `${Math.round(h.motion.cadence_spm)} spm` : '');
     if (h.breathing?.resonance != null) parts.push(`resonance ${Math.round(h.breathing.resonance * 100)}`);

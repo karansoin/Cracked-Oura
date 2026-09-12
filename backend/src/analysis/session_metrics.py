@@ -67,7 +67,7 @@ def compute_metrics(kind: str, acm: Sequence[Sequence[float]], ibi: Sequence[Seq
         if kind == "orthostatic":
             metrics["orthostatic"] = analyze_orthostatic(acm, ibi, fs, sc, opt.get("t_stand_s"))
     if ibi_ms:
-        metrics["hrv"] = analyze_hrv(ibi_ms).as_dict()
+        metrics["hrv"] = analyze_hrv(ibi_ms, breathing_lo_hz=0.08 if kind == "breathing" else 0.15).as_dict()
         _, rep = correct_ibi(ibi_ms)
         metrics["hrv"]["correction"] = rep
         metrics["rmssd_series"] = rolling_rmssd(ibi_ms)

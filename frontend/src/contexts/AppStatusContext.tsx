@@ -110,7 +110,7 @@ export function AppStatusProvider({ children }: { children: ReactNode }) {
                 toast.success('Ring sync complete', { description: next.message || undefined });
                 void refreshInventory();
             } else if (prev === 'live') {
-                toast.info('Live heart rate ended', { description: next.message || undefined });
+                toast.info('Live session ended', { description: next.message || undefined });
             } else if (prev === 'scanning') {
                 toast.info('Scan finished', { description: `${next.devices?.length ?? 0} device(s) found` });
             }
