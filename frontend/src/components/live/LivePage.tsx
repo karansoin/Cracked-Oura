@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ConfirmDialog } from '@/components/dashboard/ConfirmDialog';
 import { useIsDark } from '@/components/theme-provider';
 import { toastError, useAppStatus } from '@/contexts/AppStatusContext';
 import { api } from '@/lib/api';
@@ -76,6 +77,7 @@ export function LivePage() {
     const [history, setHistory] = useState<SessionSummary[]>([]);
     const [selected, setSelected] = useState<SessionDetail | null>(null);
     const [loadingSel, setLoadingSel] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
     const scaleRef = useRef<number | null>(null);
     const calibRef = useRef<number[]>([]);
     const chainRef = useRef<{ next: Phase | null; kind: SessionKind } | null>(null);
@@ -407,7 +409,7 @@ export function LivePage() {
                                             <div className="grid grid-cols-2 gap-2">
                                                 {(kind === 'steadiness' || kind === 'free') && <>
                                                     <Stat label="Steady" value={snapshot?.tremor?.quality === 'good' ? snapshot.tremor.steadiness_score : snapshot?.tremor?.quality === 'moving' ? 'moving' : null} unit={snapshot?.tremor?.quality === 'good' ? '/100' : undefined} />
-                                                    <Stat label="Peak" value={snapshot?.tremor?.dominant_hz ? snapshot.tremor.dominant_hz.toFixed(1) : null} unit="Hz" />
+                                                    <Stat label="Peak" value={snapshot?.tremor?.dominant_hz && (snapshot.tremor.peak_prominence ?? 0) >= 8 ? snapshot.tremor.dominant_hz.toFixed(1) : null} unit="Hz" hint={snapshot?.tremor && (snapshot.tremor.peak_prominence ?? 0) < 8 ? 'no discrete peak' : undefined} />
                                                 </>}
                                                 {(kind === 'workout' || kind === 'free') && <>
                                                     <Stat label="Activity" value={snapshot?.motion?.activity ?? null} />
@@ -436,7 +438,7 @@ export function LivePage() {
                                 <SessionResult session={selected} onNotes={saveNotes} />
                                 <div className="mt-3 flex justify-end gap-2">
                                     <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>Close</Button>
-                                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(selected.id)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" />Delete</Button>
+                                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeleteTarget(selected.id)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" />Delete</Button>
                                 </div>
                             </CardContent>
                         </Card>
@@ -478,6 +480,15 @@ export function LivePage() {
                     </CardContent>
                 </Card>
             </div>
+            <ConfirmDialog
+                open={deleteTarget !== null}
+                onOpenChange={o => !o && setDeleteTarget(null)}
+                title="Delete this session?"
+                description={<p>The recording and its analysis are removed from this Mac. This cannot be undone.</p>}
+                confirmLabel="Delete session"
+                destructive
+                onConfirm={() => { if (deleteTarget) void remove(deleteTarget); }}
+            />
         </div>
     );
 }

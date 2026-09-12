@@ -81,7 +81,7 @@ export interface SessionMetrics {
 }
 
 export interface LiveSnapshot {
-    tremor?: { steadiness_score: number; dominant_hz: number; rms_mg: number; quality: string };
+    tremor?: { steadiness_score: number; dominant_hz: number; rms_mg: number; quality: string; peak_prominence?: number; tremor_ratio?: number };
     motion?: { activity: string; cadence_spm: number | null; intensity_rms_g: number; reps: number };
     hrv?: { mean_hr: number; rmssd_ms: number; breathing_rpm: number; breathing_confidence: number };
     stress?: { sqrt_si: number | null; band?: string };

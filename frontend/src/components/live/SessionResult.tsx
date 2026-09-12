@@ -161,8 +161,8 @@ export function SessionResult({ session, onNotes, compact = false }: { session: 
                                 markers={ortho?.stand ? [{ t: ortho.stand.t_stand_s, label: 'stand' }] : []}
                                 guides={m.max_hr_used && zones ? [{ y: m.max_hr_used * 0.6, label: 'z2' }, { y: m.max_hr_used * 0.8, label: 'z4' }] : []} />
                         )}
-                        {zones && Object.keys(zones).length > 0 && (
-                            <div className="flex h-3 w-full overflow-hidden rounded border" role="img" aria-label="Time in heart-rate zones">
+                        {zones && (['z1', 'z2', 'z3', 'z4', 'z5'] as const).some(z => (zones[z] ?? 0) > 0) && (
+                            <div className="flex h-3 w-full overflow-hidden rounded border" role="img" aria-label="Time in heart-rate zones" title="Time in heart-rate zones (grey = below zone 1)">
                                 {(['below', 'z1', 'z2', 'z3', 'z4', 'z5'] as const).map((z, i) => (zones[z] ?? 0) > 0 && (
                                     <div key={z} style={{ width: `${zones[z] * 100}%`, backgroundColor: ['#d4d4d8', '#56B4E9', '#009E73', '#E69F00', '#D55E00', '#CC79A7'][i] }} title={`${z}: ${Math.round(zones[z] * 100)} %`} />
                                 ))}

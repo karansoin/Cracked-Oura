@@ -38,7 +38,7 @@ def snapshot(acm_tail: Sequence[Sequence[float]], ibi_tail: Sequence[Sequence[fl
     if len(acm_tail) >= int(fs * 4):
         t = analyze_tremor(acm_tail, fs, sc)
         m = analyze_motion(acm_tail, fs, sc)
-        out["tremor"] = {"steadiness_score": t.steadiness_score, "dominant_hz": t.dominant_hz, "rms_mg": t.rms_mg, "quality": t.quality}
+        out["tremor"] = {"steadiness_score": t.steadiness_score, "dominant_hz": t.dominant_hz, "rms_mg": t.rms_mg, "quality": t.quality, "peak_prominence": t.peak_prominence, "tremor_ratio": t.tremor_ratio}
         out["motion"] = {"activity": m.activity, "cadence_spm": m.cadence_spm, "intensity_rms_g": m.intensity_rms_g, "reps": m.reps}
     if len(ibi_tail) >= 10:
         h = analyze_hrv([x[1] for x in ibi_tail])
