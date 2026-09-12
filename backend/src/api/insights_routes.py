@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..analysis.baselines import analyze_baselines
 from ..database import SessionLocal
@@ -16,7 +16,9 @@ router = APIRouter(prefix="/api/insights")
 
 
 def nightly_rows(db, days: int = 90, end: Optional[date] = None) -> List[Dict[str, Any]]:
-    end = end or date.today()
+    """Nights up to ``end`` (default: the latest stored night, so an older import
+    still yields baselines relative to its own last night)."""
+    end = end or db.scalar(select(func.max(SleepSession.day))) or date.today()
     start = end - timedelta(days=days)
     sleeps = db.scalars(select(SleepSession).where(SleepSession.day >= start, SleepSession.day <= end).order_by(SleepSession.day)).all()
     temps = {r.day: r.temperature_deviation for r in db.scalars(select(Readiness).where(Readiness.day >= start, Readiness.day <= end)).all()}
