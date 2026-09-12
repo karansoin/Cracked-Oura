@@ -498,21 +498,26 @@ class RingManager:
         self._set("live", f"Live session ({', '.join(streams)}) for {int(duration)} s… wear the ring.")
         self.stop_event = asyncio.Event()
         serial = self.ring["serial"]
-        db = SessionLocal()
+        db = None if simulate else SessionLocal()  # simulated rings leave no trace in the ring tables
         try:
-            st = get_state(db, serial)
-            anchor = load_anchor(st)
+            if db is not None:
+                st = get_state(db, serial)
+                anchor = load_anchor(st)
+                db.commit()
             host_now = time.time()
-            db.commit()
+            mem_cursor = {"next": 0}
 
             async def drain() -> List[RingEvent]:
                 """One history pull; events are stored losslessly and the cursor advanced,
                 exactly like a sync, so nothing the ring records during the session is lost."""
                 got: List[RingEvent] = []
                 stored = {"n": 0}
-                cursor = int(st.next_cursor or 0)
+                cursor = int(st.next_cursor or 0) if db is not None else mem_cursor["next"]
 
                 async def on_batch(next_cursor: int, bytes_left: int, total: int) -> None:
+                    if db is None:
+                        mem_cursor["next"] = next_cursor
+                        return
                     fresh = got[stored["n"]:]
                     if fresh:
                         if anchor.ring_ts is None and fresh[-1].tag != 0x85:
@@ -530,7 +535,8 @@ class RingManager:
             summary = await session.run(duration)
             summary["serial"] = serial
         finally:
-            db.close()
+            if db is not None:
+                db.close()
         src = summary.get("hr_source") or "none"
         self._set("idle", f"Live session ended: {summary['acm_samples']} accelerometer samples, {summary['beats']} beats (source: {src}).")
         return summary

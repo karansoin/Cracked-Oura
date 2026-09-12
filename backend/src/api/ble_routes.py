@@ -94,6 +94,8 @@ def rings():
     try:
         out = []
         for st in db.scalars(select(RingState)).all():
+            if str(st.serial or "").startswith("SIM-"):
+                continue  # rows left by older simulated sessions
             count = db.scalar(select(func.count()).select_from(RingEvent).where(RingEvent.serial == st.serial))
             last = db.scalar(select(func.max(RingEvent.unix_time)).where(RingEvent.serial == st.serial))
             out.append(

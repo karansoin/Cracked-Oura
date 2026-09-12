@@ -253,7 +253,7 @@ export function TrendsView({ latestDate }: TrendsViewProps) {
     };
 
     return (
-        <div className="flex h-full min-h-0 flex-col gap-4">
+        <div className="flex min-h-full flex-col gap-4">
             {/* Toolbar: what to plot, over which window */}
             <div className="flex flex-wrap items-end gap-3">
                 <div className="flex flex-col gap-1.5">
@@ -291,7 +291,7 @@ export function TrendsView({ latestDate }: TrendsViewProps) {
                 </div>
             </div>
 
-            <section className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border bg-card p-4" aria-labelledby="trends-heading">
+            <section className="flex min-h-[440px] flex-1 flex-col gap-3 rounded-lg border bg-card p-4" aria-labelledby="trends-heading">
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                     <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
                         <h2 id="trends-heading" className="text-base font-medium leading-tight">{metric.label}</h2>
