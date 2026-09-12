@@ -22,7 +22,8 @@ class StartRequest(BaseModel):
     duration_s: float = 60.0
     streams: List[str] = Field(default_factory=lambda: ["acm", "hr"])
     address: Optional[str] = None
-    simulate: Optional[str] = None  # 'still' | 'tremor' | 'walk' | 'run' | 'reps'
+    simulate: Optional[str] = None  # 'still' | 'tremor' | 'walk' | 'run' | 'reps' | 'breathing' | 'orthostatic'
+    options: Dict[str, Any] = Field(default_factory=dict)  # label, target_bpm, max_hr, rest_hr, age, sex, tags, notes
 
 
 class AnalyzeRequest(BaseModel):
@@ -31,6 +32,7 @@ class AnalyzeRequest(BaseModel):
     acm: List[List[float]] = Field(default_factory=list)
     ibi: List[List[float]] = Field(default_factory=list)
     scale_g_per_lsb: Optional[float] = None
+    options: Dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/start")
@@ -38,7 +40,7 @@ async def start(req: StartRequest):
     if req.kind not in KINDS:
         raise HTTPException(status_code=400, detail=f"kind must be one of {KINDS}")
     streams = [s for s in req.streams if s in ("acm", "hr")] or ["acm", "hr"]
-    sid = ring_manager.start_live_session(req.kind, max(5.0, min(req.duration_s, 3600.0)), streams, req.address, req.simulate)
+    sid = ring_manager.start_live_session(req.kind, max(5.0, min(req.duration_s, 3600.0)), streams, req.address, req.simulate, req.options)
     if sid is None:
         raise HTTPException(status_code=409, detail="The ring manager is busy.")
     return {"started": True, "id": sid}
@@ -71,6 +73,12 @@ def _row_summary(r: LiveSession) -> Dict[str, Any]:
         "motion": {k: m["motion"].get(k) for k in ("activity", "cadence_spm", "steps", "reps", "intensity_rms_g")} if m.get("motion") else None,
         "hrv": {k: m["hrv"].get(k) for k in ("mean_hr", "rmssd_ms", "breathing_rpm")} if m.get("hrv") else None,
         "hr_recovery": m.get("hr_recovery"),
+        "stress": m.get("stress"),
+        "breathing": {k: m["breathing"].get(k) for k in ("resonance", "rsa_amplitude_bpm", "adherence", "breath_rate_bpm", "pre_post_lnrmssd")} if m.get("breathing") else None,
+        "orthostatic": {k: m["orthostatic"].get(k) for k in ("delta_peak", "delta_stand", "rmssd_ratio", "quality")} if m.get("orthostatic") else None,
+        "training_load": m.get("training_load"),
+        "label": (m.get("options") or {}).get("label"),
+        "tags": (m.get("options") or {}).get("tags"),
         "notes": r.notes,
     }
 
@@ -142,4 +150,4 @@ def analyze(req: AnalyzeRequest):
     """Analyse arrays directly (development, tests, imported recordings)."""
     from ..analysis.session_metrics import compute_metrics
 
-    return compute_metrics(req.kind, req.acm, req.ibi, req.fs_hz, req.scale_g_per_lsb)
+    return compute_metrics(req.kind, req.acm, req.ibi, req.fs_hz, req.scale_g_per_lsb, req.options)

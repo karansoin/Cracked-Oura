@@ -36,6 +36,13 @@ class TremorResult:
     quality: str                  # 'good' | 'short' | 'moving'
     movement_rms_mg: float        # low-frequency (voluntary) movement, for quality gating
     spectrum: Dict[str, List[float]]
+    q_factor: float = 0.0         # dominant-peak sharpness f/FWHM (pathological tremor is narrow-band)
+    power_3p5_7p5: float = 0.0    # rest/PD-type band as used by Kostikis et al.
+    power_7p5_12: float = 0.0     # physiological band
+    log_amplitude: float = 0.0    # log10(rms_g), tracks clinical rating scales linearly (Elble 2006)
+    jitter_amp_cv: float = 0.0    # CV of 5 s band power across segments
+    jitter_f_sd_hz: float = 0.0   # SD of dominant frequency across segments
+    peak_prominence: float = 0.0  # dominant peak / median in-band PSD
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -55,6 +62,7 @@ def analyze_tremor(samples: Sequence[Sequence[float]], fs: float = 50.0, scale_g
     duration = n / fs if fs else 0.0
     if n < int(fs * 4):
         return TremorResult(fs, duration, n, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, "short", 0.0, {"f": [], "p": []})
+
 
     mag = _magnitude(xyz)
     # Per-axis analysis catches tremor perpendicular to gravity; use the axis with most band power.
@@ -84,6 +92,32 @@ def analyze_tremor(samples: Sequence[Sequence[float]], fs: float = 50.0, scale_g
     # Steadiness: typical resting physiological tremor at the finger ≈ 2–6 mg RMS.
     score = int(round(100 * np.clip(1 - (np.log10(max(rms_mg, 0.5)) - np.log10(3.0)) / (np.log10(60.0) - np.log10(3.0)), 0, 1)))
 
+    # Peak sharpness: FWHM around the dominant bin
+    q = 0.0
+    prom = 0.0
+    if dom_hz:
+        k = int(np.argmin(np.abs(f - dom_hz)))
+        half = p[k] / 2.0
+        lo_k, hi_k = k, k
+        while lo_k > 0 and p[lo_k] > half:
+            lo_k -= 1
+        while hi_k < p.size - 1 and p[hi_k] > half:
+            hi_k += 1
+        fwhm = max(float(f[hi_k] - f[lo_k]), float(f[1] - f[0]))
+        q = float(dom_hz / fwhm)
+        inband = p[(f >= 3) & (f <= 12)]
+        prom = float(p[k] / max(float(np.median(inband)), 1e-12))
+    # Jitter across 5 s segments
+    seg = int(fs * 5)
+    seg_pow: List[float] = []
+    seg_f: List[float] = []
+    for s0 in range(0, n - seg + 1, seg):
+        fs_, ps_ = welch_psd(xyz[s0 : s0 + seg, best_axis], fs, nperseg=min(128, seg))
+        seg_pow.append(band_power(fs_, ps_, 7.5, 12))
+        seg_f.append(dominant_frequency(fs_, ps_, 3, 12)[0])
+    jitter_amp = float(np.std(seg_pow) / np.mean(seg_pow)) if len(seg_pow) >= 2 and np.mean(seg_pow) > 0 else 0.0
+    jitter_f = float(np.std(seg_f)) if len(seg_f) >= 2 else 0.0
+
     keep = f <= 20
     return TremorResult(
         fs_hz=fs, duration_s=round(duration, 2), n_samples=n,
@@ -93,4 +127,7 @@ def analyze_tremor(samples: Sequence[Sequence[float]], fs: float = 50.0, scale_g
         tremor_ratio=round(float(ratio), 3), steadiness_score=score, quality=quality,
         movement_rms_mg=round(movement_rms_mg, 1),
         spectrum={"f": [round(float(v), 2) for v in f[keep]], "p": [float(v) for v in p[keep]]},
+        q_factor=round(q, 2), power_3p5_7p5=float(band_power(f, p, 3.5, 7.5)), power_7p5_12=float(band_power(f, p, 7.5, 12)),
+        log_amplitude=round(float(np.log10(max(rms_g, 1e-5))), 3), jitter_amp_cv=round(jitter_amp, 3), jitter_f_sd_hz=round(jitter_f, 2),
+        peak_prominence=round(prom, 1),
     )

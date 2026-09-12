@@ -68,3 +68,43 @@ def test_live_hr_parse():
     (p,) = P.parse_many(bytes([0x2F, 0x08, 0x28, 0x02, 0x00, 0x02, 0x00, 0x00, 0x59, 0x13]))
     s = P.parse_live_hr(p)
     assert s.ibi_ms == 857 and s.bpm == 70
+
+
+def test_live_beat_full_frame_with_skin_temperature():
+    from backend.src.ble import protocol as P
+
+    frame = bytes.fromhex("2f0f2802110200000104000000003 50d7f".replace(" ", ""))
+    (p,) = P.parse_many(frame)
+    b = P.parse_live_beat(p)
+    assert b is not None
+    assert b.ibi_ms == 1025 and b.validity == P.IBI_UNKNOWN and b.bpm is None
+    assert b.status == 0x11 and b.state == 2 and b.skin_temp_c == 33.81 and b.pqi == 0x7F
+    assert P.parse_live_hr(p) is None  # unknown validity is not displayed
+    valid = bytes.fromhex("2f0f280211020000fb13000000009 90c7f".replace(" ", ""))
+    (p2,) = P.parse_many(valid)
+    b2 = P.parse_live_beat(p2)
+    assert b2.ibi_ms == 1019 and b2.validity == P.IBI_VALID and b2.bpm == 58 and b2.skin_temp_c == 32.25
+    assert P.parse_live_hr(p2).bpm == 58
+    short = bytes.fromhex("2f08280200020000f811")
+    (p3,) = P.parse_many(short)
+    b3 = P.parse_live_beat(p3)
+    assert b3.ibi_ms == 504 and b3.validity == P.IBI_VALID and b3.skin_temp_c is None
+    inv = bytes.fromhex("2f082802000200004b22")
+    (p4,) = P.parse_many(inv)
+    assert P.parse_live_beat(p4).validity == P.IBI_INVALID and not P.parse_live_beat(p4).usable_for_hrv
+
+
+def test_acm_frame_rate_and_seq():
+    from backend.src.ble import protocol as P
+
+    frame = bytes([0x33, 0x0E, 0x32, 0x07]) + (100).to_bytes(2, "little", signed=True) * 6
+    (p,) = P.parse_many(frame)
+    f = P.parse_acm_frame(p)
+    assert f.rate_hz == 50 and f.seq == 7 and len(f.samples) == 2 and f.samples[1].z == 100
+
+
+def test_state_notify_parse():
+    from backend.src.ble import protocol as P
+
+    (p,) = P.parse_many(bytes.fromhex("1f0420050300"))
+    assert P.parse_state_notify(p) == {"state": 5, "mode": 3}

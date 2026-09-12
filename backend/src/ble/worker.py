@@ -30,8 +30,10 @@ def _emit(obj: Dict[str, Any]) -> None:
 
 
 async def _run(cmd: Dict[str, Any]) -> int:
+    from ..database import init_db
     from .manager import RingManager
 
+    init_db()  # idempotent; the worker persists live-session events and ring state itself
     mgr = RingManager()
     q = mgr.listen()
 

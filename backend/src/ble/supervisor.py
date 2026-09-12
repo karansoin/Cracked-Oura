@@ -163,8 +163,13 @@ class RingSupervisor:
             from ..models import LiveSession as LiveSessionRow
 
             fs = float(data.get("fs_hz") or 50.0)
-            metrics = compute_metrics(live.get("kind", "free"), data.get("acm") or [], data.get("ibi") or [], fs, live.get("scale"))
+            metrics = compute_metrics(live.get("kind", "free"), data.get("acm") or [], data.get("ibi") or [], fs, live.get("scale"), live.get("options"))
             metrics["preview"] = acm_preview(data.get("acm") or [], fs, metrics.get("scale_g_per_lsb"))
+            metrics["hr_source"] = data.get("hr_source")
+            metrics["seq_gaps"] = data.get("seq_gaps")
+            if data.get("temps"):
+                temps = data["temps"]
+                metrics["skin_temp"] = {"series": temps[:: max(1, len(temps) // 300)], "mean_c": round(sum(x[1] for x in temps) / len(temps), 2)}
             db = SessionLocal()
             try:
                 row = LiveSessionRow(
@@ -172,6 +177,7 @@ class RingSupervisor:
                     simulated=bool(live.get("simulate")), started_at=datetime.fromtimestamp(live["started"]),
                     ended_at=datetime.now(), duration_s=data.get("duration_s"), fs_hz=fs,
                     scale_g_per_lsb=metrics.get("scale_g_per_lsb"), acm=data.get("acm"), ibi=data.get("ibi"), metrics=metrics,
+                    notes=(live.get("options") or {}).get("notes"),
                 )
                 db.merge(row)
                 db.commit()
@@ -184,7 +190,7 @@ class RingSupervisor:
             logger.exception("Could not persist live session")
             live["last_error"] = f"Session analysis failed: {e}"
 
-    def start_live_session(self, kind: str, duration: float, streams: List[str], address: Optional[str] = None, simulate: Optional[str] = None) -> Optional[str]:
+    def start_live_session(self, kind: str, duration: float, streams: List[str], address: Optional[str] = None, simulate: Optional[str] = None, options: Optional[Dict[str, Any]] = None) -> Optional[str]:
         import uuid
 
         if self.busy:
@@ -193,7 +199,7 @@ class RingSupervisor:
         self._live_acm.clear()
         self._live_ibi.clear()
         self.live_samples.clear()
-        self.live = {"active": True, "id": sid, "kind": kind, "started": time.time(), "duration": duration, "streams": streams, "simulate": simulate, "beats": 0, "acm_samples": 0}
+        self.live = {"active": True, "id": sid, "kind": kind, "started": time.time(), "duration": duration, "streams": streams, "simulate": simulate, "beats": 0, "acm_samples": 0, "options": dict(options or {})}
         ok = self._start({"op": "live_session", "duration": duration, "streams": streams, "address": address, "simulate": simulate})
         if not ok:
             self.live = {"active": False}

@@ -414,26 +414,37 @@ class RingClient:
     async def live_heart_rate(self, duration: float, on_sample: Callable[[P.HeartRateSample], None]) -> None:
         q = self.t.subscribe()
         try:
+            # The phone app's triplet: status read, CONNECTED_LIVE, then the LATEST
+            # subscription. The stream starts only after the third acknowledgement.
+            await self.t.write(P.req_set_notification(0x3F))
+            await self.t.write(P.req_feature_status(0x02))
             await self.t.write(P.req_set_feature_mode(0x02, P.MODE_CONNECTED_LIVE))
+            await self.t.write(P.req_set_feature_subscription(0x02, 0x02))
             deadline = time.monotonic() + duration
+            last_trigger = time.monotonic()
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
+                if time.monotonic() - last_trigger >= 15.0:  # the ring reverts after ~20 s
+                    await self.t.write(P.req_set_feature_mode(0x02, P.MODE_CONNECTED_LIVE))
+                    await self.t.write(P.req_set_feature_subscription(0x02, 0x02))
+                    last_trigger = time.monotonic()
                 try:
-                    frame = await asyncio.wait_for(q.get(), remaining)
+                    frame = await asyncio.wait_for(q.get(), min(remaining, 1.0))
                 except asyncio.TimeoutError:
-                    break
+                    continue
                 for p in P.parse_many(frame):
                     s = P.parse_live_hr(p)
                     if s:
                         on_sample(s)
         finally:
             self.t.unsubscribe(q)
-            try:
-                await self.t.write(P.req_set_feature_mode(0x02, P.MODE_AUTOMATIC))
-            except Exception:
-                pass
+            for req in (P.req_set_feature_mode(0x02, P.MODE_AUTOMATIC), P.req_set_feature_subscription(0x02, 0x00)):
+                try:
+                    await self.t.write(req)
+                except Exception:
+                    pass
 
     async def stream_accelerometer(self, duration: float, on_sample: Callable[[P.AcmSample], None]) -> None:
         q = self.t.subscribe()

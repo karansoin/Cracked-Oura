@@ -497,9 +497,42 @@ class RingManager:
             await rc.authenticate(key)
         self._set("live", f"Live session ({', '.join(streams)}) for {int(duration)} s… wear the ring.")
         self.stop_event = asyncio.Event()
-        session = LiveSession(rc, streams, emit=self._emit, stop_event=self.stop_event)
-        summary = await session.run(duration)
-        self._set("idle", f"Live session ended: {summary['acm_samples']} accelerometer samples, {summary['beats']} beats.")
+        serial = self.ring["serial"]
+        db = SessionLocal()
+        try:
+            st = get_state(db, serial)
+            anchor = load_anchor(st)
+            host_now = time.time()
+            db.commit()
+
+            async def drain() -> List[RingEvent]:
+                """One history pull; events are stored losslessly and the cursor advanced,
+                exactly like a sync, so nothing the ring records during the session is lost."""
+                got: List[RingEvent] = []
+                stored = {"n": 0}
+                cursor = int(st.next_cursor or 0)
+
+                async def on_batch(next_cursor: int, bytes_left: int, total: int) -> None:
+                    fresh = got[stored["n"]:]
+                    if fresh:
+                        if anchor.ring_ts is None and fresh[-1].tag != 0x85:
+                            anchor.observe_host(fresh[-1].ring_ts, host_now)
+                        store_events(db, serial, fresh, anchor)
+                        stored["n"] = len(got)
+                    st.next_cursor = next_cursor
+                    save_anchor(st, anchor)
+                    db.commit()
+
+                await rc.drain_events(cursor, got.append, on_batch, max_batches=3)
+                return got
+
+            session = LiveSession(rc, streams, emit=self._emit, stop_event=self.stop_event, drain=drain)
+            summary = await session.run(duration)
+            summary["serial"] = serial
+        finally:
+            db.close()
+        src = summary.get("hr_source") or "none"
+        self._set("idle", f"Live session ended: {summary['acm_samples']} accelerometer samples, {summary['beats']} beats (source: {src}).")
         return summary
 
     # ---------------------------------------------------------- info only

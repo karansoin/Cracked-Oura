@@ -78,3 +78,104 @@ def test_hr_recovery_and_zones():
     assert rec["peak_bpm"] and 15 <= rec["hrr1"] <= 20 and 34 <= rec["hrr2"] <= 38
     z = hr_zones([100, 120, 140, 160, 175, 185], max_hr=190, rest_hr=50)
     assert abs(sum(z.values()) - 1.0) < 0.01 and z["z5"] > 0
+
+
+def test_correct_ibi_flags_missed_and_extra_beats():
+    from backend.src.analysis.hrv import correct_ibi
+
+    rng = np.random.default_rng(3)
+    base = list(900 + rng.normal(0, 20, 120))
+    series = base[:40] + [base[40] * 2] + base[41:80] + [base[80] * 0.45, base[80] * 0.55] + base[81:]
+    fixed, rep = correct_ibi(series)
+    assert rep["corrected"] >= 2 and rep["fraction"] < 0.05 and rep["usable"]
+    assert abs(fixed.size - 122) <= 2  # a split and a merge net out
+    assert abs(np.mean(fixed) - 900) < 15 and np.max(fixed) < 1100
+
+
+def test_stress_index_bands():
+    from backend.src.analysis.hrv import stress_index
+
+    rng = np.random.default_rng(1)
+    relaxed = stress_index(1000 + rng.normal(0, 60, 200))
+    tense = stress_index(700 + rng.normal(0, 8, 200))
+    assert relaxed["si"] < tense["si"] and relaxed["band"] in ("vagal", "balanced") and tense["band"] in ("sympathetic", "high strain")
+
+
+def test_breathing_session_scores_paced_breathing():
+    from backend.src.analysis.hrv import breathing_session
+
+    t, ibi = [], []
+    clock = 0.0
+    rng = np.random.default_rng(0)
+    while clock < 300:
+        bpm = 62 + 8 * np.sin(2 * np.pi * 0.1 * clock) + rng.normal(0, 0.5)
+        x = 60000 / bpm
+        clock += x / 1000
+        t.append(clock)
+        ibi.append(x)
+    r = breathing_session(ibi, t, target_bpm=6.0)
+    assert r["n_breaths"] >= 20 and 5.0 <= r["breath_rate_bpm"] <= 7.0, r
+    assert r["resonance"] > 0.5 and r["adherence"] >= 0.7 and 10 <= r["rsa_amplitude_bpm"] <= 20, r
+
+
+def test_orthostatic_detects_stand_and_hr_rise():
+    from backend.src.analysis.orthostatic import analyze_orthostatic
+
+    fs = 50
+    rng = np.random.default_rng(2)
+    n = fs * 240
+    xyz = np.zeros((n, 3))
+    xyz[:, 2] = 1.0
+    xyz += rng.normal(0, 0.003, xyz.shape)
+    s = fs * 60
+    burst = np.arange(s, s + 2 * fs)
+    xyz[burst, 0] += 0.3 * np.sin(np.linspace(0, 12 * np.pi, burst.size))
+    xyz[s + fs :, [0, 2]] = xyz[s + fs :, [2, 0]]  # gravity swaps axes after standing
+    t, ibi, clock = [], [], 0.0
+    while clock < 240:
+        bpm = 58 if clock < 61 else (78 if clock < 80 else 70)
+        x = 60000 / (bpm + rng.normal(0, 0.5))
+        clock += x / 1000
+        t.append(clock)
+        ibi.append(x)
+    r = analyze_orthostatic(xyz.tolist(), list(zip(t, ibi)), fs)
+    assert r["stand"] and abs(r["stand"]["t_stand_s"] - 60) < 3, r["stand"]
+    assert 15 <= r["delta_peak"] <= 24 and 9 <= r["delta_stand"] <= 15 and r["quality"] == "good", r
+
+
+def test_baselines_cusum_alarm_and_readiness():
+    from backend.src.analysis.baselines import analyze_baselines, cusum
+    from datetime import date, timedelta
+
+    rng = np.random.default_rng(5)
+    rows = []
+    d0 = date(2026, 6, 1)
+    for i in range(70):
+        sick = i >= 64
+        rows.append({
+            "day": d0 + timedelta(days=i),
+            "resting_hr": 52 + rng.normal(0, 1.5) + (6 if sick else 0),
+            "rmssd": 60 + rng.normal(0, 6) - (20 if sick else 0),
+            "temp_deviation": rng.normal(0, 0.12) + (0.6 if sick else 0),
+            "breathing_rate": 14 + rng.normal(0, 0.4) + (1.5 if sick else 0),
+            "sleep_hours": 7.3 + rng.normal(0, 0.4),
+        })
+    healthy = analyze_baselines(rows[:60])
+    assert healthy["readiness"] is not None and 35 <= healthy["readiness"] <= 70 and not healthy["alarms"]
+    out = analyze_baselines(rows)
+    names = {a["signal"] for a in out["alarms"]}
+    assert {"resting_hr", "temp_deviation"} <= names, out["alarms"]
+    assert out["status"] == "watch" and out["readiness"] < healthy["readiness"]
+    assert cusum([0, 0, 5, 5, 5], 1.0, +1)[-1] > 4 and cusum([0, 0, -5, -5], 1.0, +1)[-1] == 0
+
+
+def test_tremor_peak_sharpness_and_jitter():
+    from backend.src.analysis.tremor import analyze_tremor
+
+    fs = 50
+    t = np.arange(0, 30, 1 / fs)
+    rng = np.random.default_rng(0)
+    xyz = np.stack([0.02 * np.sin(2 * np.pi * 5.0 * t) + rng.normal(0, 0.002, t.size), rng.normal(0, 0.002, t.size), 1 + rng.normal(0, 0.002, t.size)], axis=1)
+    r = analyze_tremor(xyz.tolist(), fs)
+    assert 4.6 <= r.dominant_hz <= 5.4 and r.q_factor >= 5 and r.peak_prominence > 20
+    assert r.jitter_f_sd_hz < 0.5 and r.power_3p5_7p5 > r.power_7p5_12 and r.log_amplitude < -1

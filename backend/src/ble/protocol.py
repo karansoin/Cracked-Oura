@@ -324,14 +324,73 @@ class HeartRateSample:
 
 
 def parse_live_hr(p: Packet) -> Optional[HeartRateSample]:
-    """Daytime-HR live notification: ``2f xx 28 <cap> <status> <state> <t:u16> <ibi:u16>``."""
+    """Daytime-HR live notification: ``2f xx 28 <cap> <status> <state> <t:u16> <ibi:u16>``.
+    Returns only beats the ring marks VALID (the phone app's display rule)."""
+    b = parse_live_beat(p)
+    if b is None or b.validity != IBI_VALID or b.bpm is None:
+        return None
+    return HeartRateSample(b.bpm, b.ibi_ms)
+
+
+IBI_UNKNOWN, IBI_VALID, IBI_INVALID, IBI_CORRECTED = 0, 1, 2, 3
+IBI_VALIDITY_NAMES = {0: "unknown", 1: "valid", 2: "invalid", 3: "corrected"}
+FEATURE_STATES = {0: "idle", 1: "scanning", 2: "measuring", 3: "postprocessing"}
+
+
+@dataclass
+class LiveBeat:
+    """One ``FeatureSubscriptionEvent`` push for daytime HR.
+
+    ``2f 0f 28 02 <status> <state> <tsince:u16> <ibi:u16> [<cqi:i32> <temp:i16> <pqi:u8>]``
+    The IBI word carries a 12-bit interval and a validity nibble; the tail is the
+    app's ``DaytimeHrSubscriptionStatus`` and includes a per-beat skin temperature
+    in centi-°C (the only live temperature path on these rings)."""
+
+    ibi_ms: int
+    validity: int
+    bpm: Optional[int]
+    status: int
+    state: int
+    time_since: int
+    cqi: Optional[int] = None
+    skin_temp_c: Optional[float] = None
+    pqi: Optional[int] = None
+
+    @property
+    def usable_for_hrv(self) -> bool:
+        return self.validity in (IBI_VALID, IBI_CORRECTED) and 300 <= self.ibi_ms <= 2000
+
+
+def parse_live_beat(p: Packet) -> Optional[LiveBeat]:
     if p.ext != 0x28 or len(p.payload) < 8 or p.payload[1] != 0x02:
         return None
-    lo, hi = p.payload[6], p.payload[7]
-    ibi = ((hi & 0x0F) << 8) | lo
-    if (hi >> 4) & 0x0F != 1 or not 300 <= ibi <= 2000:
+    b = p.payload
+    ibi = ((b[7] & 0x0F) << 8) | b[6]
+    validity = (b[7] >> 4) & 0x0F
+    bpm = 60000 // ibi if validity in (IBI_VALID, IBI_CORRECTED) and 300 <= ibi <= 2000 else None
+    cqi = temp = pqi = None
+    if len(b) >= 15:
+        cqi = struct.unpack_from("<i", b, 8)[0]
+        t = struct.unpack_from("<h", b, 12)[0]
+        temp = t / 100.0 if 2000 <= t <= 4200 else None
+        pqi = b[14]
+    return LiveBeat(ibi, validity, bpm, b[2], b[3], struct.unpack_from("<H", b, 4)[0], cqi, temp, pqi)
+
+
+def parse_feature_latest_beat(p: Packet) -> Optional[LiveBeat]:
+    """``2f 10 25 02 <result> <status> <state> <counter:u16> <ibi:u16> <cqi:i32> <temp:i16> <pqi:u8>``
+    shares the beat tail with the push frame."""
+    if p.ext != 0x25 or len(p.payload) < 9 or p.payload[1] != 0x02 or p.payload[2] != 0:
         return None
-    return HeartRateSample(60000 // ibi, ibi)
+    tail = bytes([0x28, 0x02, p.payload[3], p.payload[4]]) + bytes(p.payload[5:])
+    return parse_live_beat(Packet(0x2F, tail))
+
+
+def parse_state_notify(p: Packet) -> Optional[Dict[str, int]]:
+    """Async ``1f 04 20 <state> <mode> 00`` frames (enabled by ``1c 01 3f``)."""
+    if p.tag != 0x1F or len(p.payload) < 3 or p.payload[0] != 0x20:
+        return None
+    return {"state": p.payload[1], "mode": p.payload[2]}
 
 
 @dataclass
@@ -341,17 +400,29 @@ class AcmSample:
     z: int
 
 
-def parse_acm(p: Packet) -> List[AcmSample]:
-    """Live accelerometer frame ``33 len <rate> <seq> x y z [x y z]``."""
+@dataclass
+class AcmFrame:
+    rate_hz: int
+    seq: int
+    samples: List[AcmSample]
+
+
+def parse_acm_frame(p: Packet) -> Optional[AcmFrame]:
+    """Live accelerometer frame ``33 0e <rate_hz> <seq> x y z x y z`` (two samples)."""
     if p.tag != ACM_RESPONSE_TAG or len(p.payload) < 8:
-        return []
+        return None
     b = p.payload
     out = []
     for off in (2, 8):
         if off + 6 <= len(b):
             x, y, z = struct.unpack_from("<hhh", b, off)
             out.append(AcmSample(x, y, z))
-    return out
+    return AcmFrame(b[0], b[1], out)
+
+
+def parse_acm(p: Packet) -> List[AcmSample]:
+    f = parse_acm_frame(p)
+    return f.samples if f else []
 
 
 @dataclass

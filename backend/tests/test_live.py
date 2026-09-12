@@ -22,7 +22,12 @@ def test_live_session_with_simulated_tremor():
     assert summary["acm_samples"] >= 250 and summary["beats"] >= 4
     assert any(e["type"] == "acm" for e in events) and any(e["type"] == "hr" for e in events)
     # exit sequence restored the ring
-    assert ring.writes[-1][:4] == bytes([0x2F, 0x03, 0x22, 0x02]) or ring.writes[-1][:2] == bytes([0x06, 0x04])
+    tail = ring.writes[-3:]
+    assert tail[0][:2] == bytes([0x06, 0x04]), tail  # ACM off first
+    assert tail[1][:5] == bytes([0x2F, 0x03, 0x22, 0x02, 0x01]), tail  # daytime HR back to AUTOMATIC (never OFF)
+    assert tail[2][:5] == bytes([0x2F, 0x03, 0x26, 0x02, 0x00]), tail  # subscription off
+    assert summary["hr_source"] == "push" and summary["temps"] and 33 <= summary["temps"][0][1] <= 35
+    assert any(e["type"] == "hr" and e.get("skin_temp_c") for e in events)
     m = compute_metrics("steadiness", summary["acm"], summary["ibi"], summary["fs_hz"])
     assert 4.8 <= m["tremor"]["dominant_hz"] <= 5.8, m["tremor"]
     assert m["scale_g_per_lsb"] and abs(1 / m["scale_g_per_lsb"] - 4096) < 200
@@ -47,7 +52,7 @@ def test_live_api_end_to_end_with_worker_subprocess():
             if not st.get("active") and st.get("saved_id"):
                 saved = st
                 break
-        assert saved, c.get("/api/live/status").json()
+        assert saved, c.get("/api/live/status").json().get("last_error")
         assert saved["snapshot"]["motion"]["activity"] == "walk", saved["snapshot"]
         detail = c.get(f"/api/live/sessions/{sid}").json()
         assert detail["kind"] == "workout" and detail["simulated"] is True
@@ -74,3 +79,19 @@ def test_live_api_end_to_end_with_worker_subprocess():
 
         a = c.post("/api/live/analyze", json={"kind": "free", "fs_hz": 50, "acm": [[0, 0, 4096]] * 300, "ibi": [[i, 1000] for i in range(40)]}).json()
         assert a["motion"]["activity"] == "rest" and a["hrv"]["mean_hr"] == 60.0
+
+        # Ring 4-style firmware: no beat pushes, beats come from the event-log drain
+        r = c.post("/api/live/start", json={"kind": "workout", "duration_s": 24, "simulate": "ring4", "options": {"max_hr": 185, "rest_hr": 55, "label": "test"}})
+        assert r.status_code == 200, r.text
+        sid3 = r.json()["id"]
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            time.sleep(1)
+            st = c.get("/api/live/status").json()
+            if not st.get("active") and st.get("saved_id") == sid3:
+                break
+        d3 = c.get(f"/api/live/sessions/{sid3}").json()
+        assert d3["metrics"]["hr_source"] == "history", d3["metrics"].get("hr_source")
+        assert d3["beats"] >= 7 and d3["hrv"]["mean_hr"] > 40, d3
+        assert d3["metrics"]["training_load"]["banister"] is not None and d3["label"] == "test"
+        assert d3["metrics"]["motion"]["activity"] == "walk"

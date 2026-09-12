@@ -22,10 +22,16 @@ COUNTS_PER_G = 4096  # arbitrary but fixed; the app calibrates at rest
 
 
 class SimulatedRing(Transport):
-    def __init__(self, scenario: str = "still", hr_bpm: float = 62.0, seed: int = 1):
+    def __init__(self, scenario: str = "still", hr_bpm: float = 62.0, seed: int = 1, push_hr: Optional[bool] = None):
         self.fanout = _Fanout()
         self.scenario = scenario
         self.hr_bpm = hr_bpm
+        # Ring 4 fw 2.12 acknowledges CONNECTED_LIVE but never pushes 0x28 frames; beats
+        # only appear as 0x80 records in the event log. 'ring4' models that firmware.
+        self.push_hr = (scenario != "ring4") if push_hr is None else push_hr
+        self.events: list = []  # (tag, ring_ts, body) pending in the ring's log
+        self.acked_cursor = 0
+        self._pending_ibis: list = []
         self.rng = random.Random(seed)
         self.key: Optional[bytes] = None
         self.authed = False
@@ -76,6 +82,17 @@ class SimulatedRing(Transport):
                 self._send(bytes.fromhex("2f0c020209000a060b000c000d01"))
         elif tag == 0x0C:
             self._send(bytes.fromhex("0d065a0000000000"))
+        elif tag == 0x10:
+            cursor, maxn = struct.unpack_from("<IB", data, 2)
+            if maxn == 0:
+                self.acked_cursor = cursor
+                self.events = [ev for ev in self.events if ev[1] >= cursor]
+                self._send(bytes.fromhex("11080000000000000000"))
+                return
+            pending = [ev for ev in self.events if ev[1] >= cursor][:maxn]
+            frames = [bytes([t, 4 + len(b)]) + struct.pack("<I", ts) + b for t, ts, b in pending]
+            left = len([ev for ev in self.events if ev[1] >= cursor]) - len(pending)
+            self._send(*frames, bytes([0x11, 8, len(pending), 0]) + struct.pack("<I", left * 20) + b"\x00\x00")
         elif tag == 0x06:
             bitmask, minutes, _delay = struct.unpack_from("<IHB", data, 2)
             self._send(bytes.fromhex("070100"))
@@ -104,6 +121,8 @@ class SimulatedRing(Transport):
         n = self.rng.gauss
         x, y, z = n(0, 0.002), n(0, 0.002), 1.0 + n(0, 0.002)
         s = self.scenario
+        if s == "ring4":
+            s = "walk"
         if s == "tremor":
             x += 0.03 * math.sin(2 * math.pi * 5.3 * t)
         elif s == "walk":
@@ -113,6 +132,12 @@ class SimulatedRing(Transport):
             z += 0.9 * math.sin(2 * math.pi * 2.8 * t) + 0.3 * math.sin(2 * math.pi * 5.6 * t)
         elif s == "reps":
             y += 0.25 * math.sin(2 * math.pi * 0.5 * t)
+        elif s == "orthostatic":
+            if 20.0 <= t < 22.0:  # the stand: a burst of movement
+                x += 0.3 * math.sin(2 * math.pi * 3.0 * t) * n(1, 0.3)
+                y += 0.2 * math.sin(2 * math.pi * 2.0 * t)
+            if t >= 21.0:  # gravity now along another axis (arm hanging)
+                x, z = z, x
         return int(x * COUNTS_PER_G), int(y * COUNTS_PER_G), int(z * COUNTS_PER_G)
 
     async def _acm_loop(self, seconds: float) -> None:
@@ -134,10 +159,25 @@ class SimulatedRing(Transport):
     async def _hr_loop(self) -> None:
         try:
             while time.time() < self._hr_until:
-                bpm = self.hr_bpm + 4 * math.sin(2 * math.pi * 0.25 * (time.time() - self.t0)) + self.rng.gauss(0, 1)
+                el = time.time() - self.t0
+                if self.scenario == "breathing":
+                    bpm = self.hr_bpm + 8 * math.sin(2 * math.pi * 0.1 * el) + self.rng.gauss(0, 0.7)
+                elif self.scenario == "orthostatic":
+                    rise = 0.0 if el < 21 else (18.0 if el < 35 else 12.0)
+                    bpm = self.hr_bpm + rise + 3 * math.sin(2 * math.pi * 0.25 * el) + self.rng.gauss(0, 1)
+                else:
+                    bpm = self.hr_bpm + 4 * math.sin(2 * math.pi * 0.25 * el) + self.rng.gauss(0, 1)
                 ibi = int(60000 / max(bpm, 30))
-                hi = 0x10 | ((ibi >> 8) & 0x0F)
-                self._send(bytes([0x2F, 0x08, 0x28, 0x02, 0x00, 0x02, 0x00, 0x00, ibi & 0xFF, hi]))
+                if self.push_hr:
+                    hi = 0x10 | ((ibi >> 8) & 0x0F)
+                    temp = int(3380 + 20 * math.sin(el / 30))
+                    self._send(bytes([0x2F, 0x0F, 0x28, 0x02, 0x11, 0x02, 0x00, 0x00, ibi & 0xFF, hi]) + struct.pack("<ihB", 0, temp, 0x7F))
+                else:
+                    self._pending_ibis.append(ibi)
+                    if len(self._pending_ibis) == 7:  # one green_ibi_quality record per 7 beats
+                        body = b"".join(bytes([(v >> 3) & 0xFF, ((v & 7) | (1 << 3))]) for v in self._pending_ibis)
+                        self.events.append((0x80, int(el * 10) + 1000, body))
+                        self._pending_ibis = []
                 await asyncio.sleep(ibi / 1000.0)
         except asyncio.CancelledError:
             pass
