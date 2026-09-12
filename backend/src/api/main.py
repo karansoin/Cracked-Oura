@@ -107,14 +107,10 @@ app = FastAPI(
 # file:// page inside Electron (origin "null"). Nothing else may read the data.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "null",
-        "file://",
-    ],
+    # Only pages served from this machine (the Vite dev server on any port, or the
+    # packaged app's file:// page, whose origin is "null") may read the data.
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origins=["null", "file://"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
