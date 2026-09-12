@@ -55,11 +55,38 @@ except Exception as e:  # pragma: no cover - BLE stack optional at import time
     logger.warning("BLE router unavailable: %s", e)
 
 
+async def _auto_sync_loop() -> None:
+    """Every few minutes: if auto-sync is on, a ring is paired and nothing is running,
+    start a ring sync. The ring only answers when it is on the charger or nearby and
+    not connected to a phone, so failures are expected and logged quietly."""
+    import asyncio
+
+    from backend.src.ble.supervisor import ring_manager
+    from backend.src.config import config_manager
+
+    interval = int(os.environ.get("CRACKED_OURA_AUTOSYNC_MINUTES") or 30)
+    await asyncio.sleep(60)
+    while True:
+        try:
+            cfg = config_manager.get_config()
+            if cfg.get("ble_auto_sync") and ring_manager.paired_serials() and not ring_manager.busy:
+                logger.info("Auto-sync: starting ring sync")
+                ring_manager.start_sync(cfg.get("ble_ring_address"))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Auto-sync loop error: %s", e)
+        await asyncio.sleep(interval * 60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+
     init_db()
     logger.info("Backend ready. Logging to %s", LOG_FILE)
+    auto_task = asyncio.create_task(_auto_sync_loop()) if ble_router is not None else None
     yield
+    if auto_task is not None:
+        auto_task.cancel()
     if ble_router is not None:
         try:
             from backend.src.ble.supervisor import ring_manager

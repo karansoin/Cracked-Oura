@@ -184,6 +184,7 @@ def derive_sleep(db: Session, serial: str) -> int:
     ibi_ev = _events(db, serial, (0x60, 0x80))
     temp_ev = _events(db, serial, (0x75, 0x46))
     spo2_ev = _events(db, serial, (0x6F,))
+    period_ev = _events(db, serial, (0x6A,))
     st = db.get(RingState, serial)
     anchor = load_anchor(st) if st else TimeAnchor()
 
@@ -239,6 +240,9 @@ def derive_sleep(db: Session, serial: str) -> int:
         for ev in _series_in(spo2_ev, s_unix, e_unix):
             spo2_vals.extend((ev.decoded or {}).get("spo2_percent") or [])
         spo2_avg = round(statistics.mean(spo2_vals), 1) if len(spo2_vals) >= 30 else None
+        breaths = [(ev.decoded or {}).get("breath") for ev in _series_in(period_ev, s_unix, e_unix)]
+        breaths = [b for b in breaths if b and 4 <= b <= 40]
+        avg_breath = round(statistics.mean(breaths), 1) if breaths else None
 
         total = (counts["deep"] + counts["light"] + counts["rem"]) * 300 if phases else int(e_unix - s_unix)
         awake = counts["awake"] * 300
@@ -264,6 +268,7 @@ def derive_sleep(db: Session, serial: str) -> int:
                 "average_heart_rate": round(statistics.mean(hr_vals), 1) if hr_vals else None,
                 "lowest_heart_rate": min(hr_vals) if hr_vals else None,
                 "average_hrv": int(round(statistics.mean(hrv_vals))) if hrv_vals else None,
+                "average_breath": avg_breath,
                 "hr_data": hr_series or None,
                 "hrv_data": hrv_series or None,
                 "sleep_phase_5_min": phase_series or None,

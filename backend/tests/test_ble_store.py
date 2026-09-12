@@ -48,6 +48,9 @@ def test_store_and_derive_sleep_night():
     # daytime IBI at 75 bpm (800 ms) after waking
     for i in range(10):
         events.append(ibi_event(e_ring + 6000 + i * 600, 800))
+    # sleep period info every 30 min: avg HR 52 (0x68*0.5), breath 14.5 (116/8), motion 3, state 1
+    for i in range(0, 8 * 3600, 1800):
+        events.append(RingEvent(0x6A, s_ring + i * 10 + 5, bytes([0x68, 0, 0, 0, 116, 8, 3, 1, 0, 0])))
     # SpO2 at 1 Hz during sleep: 60 samples of 96%, header byte then samples
     for i in range(5):
         events.append(RingEvent(0x6F, s_ring + 60_000 + i * 120, bytes([0x68] + [96] * 12)))
@@ -74,7 +77,7 @@ def test_store_and_derive_sleep_night():
     assert s.deep_sleep_duration == 24 * 300 and s.awake_time == 24 * 300
     assert s.total_sleep_duration == 72 * 300
     assert s.efficiency == 75
-    assert s.average_heart_rate == 52.0 and s.average_hrv == 60
+    assert s.average_heart_rate == 52.0 and s.average_hrv == 60 and s.average_breath == 14.5
     assert len(s.hrv_data) == 16 * 6 and len(s.sleep_phase_5_min) == 96
     daily = db.scalars(select(Sleep)).one()
     assert daily.score is None and daily.average_spo2 == 96.0
