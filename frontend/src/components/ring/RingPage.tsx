@@ -24,6 +24,7 @@ import {
     Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -326,7 +327,22 @@ export function RingPage() {
                         </Button>
                     </div>
                 </CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 space-y-4">
+                    {rings.length > 0 && (
+                        <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                            <div>
+                                <p className="text-sm font-medium">Auto-sync</p>
+                                <p className="text-xs text-muted-foreground">Every 30 minutes, if the ring is nearby (on its charger works best) and not connected to a phone.</p>
+                            </div>
+                            <Switch
+                                checked={!!ble?.auto_sync}
+                                aria-label="Auto-sync paired ring"
+                                onCheckedChange={(v) => {
+                                    void api.saveSettings({ ble_auto_sync: v }).then(() => { refreshBle(); toast.success(v ? 'Auto-sync on' : 'Auto-sync off'); }).catch((e) => toastError('Could not save auto-sync', e));
+                                }}
+                            />
+                        </div>
+                    )}
                     {ringsError && <p className="text-sm text-destructive">{ringsError}</p>}
                     {!ringsError && rings.length === 0 && (
                         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
