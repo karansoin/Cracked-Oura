@@ -48,13 +48,13 @@ export class ErrorBoundary extends Component<Props, State> {
             }
 
             return (
-                <div className="flex flex-col items-center justify-center h-full p-4 text-center text-muted-foreground bg-secondary/10 rounded-lg" role="alert">
-                    <AlertCircle className="h-8 w-8 mb-2 text-destructive" aria-hidden="true" />
+                <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed border-destructive/40 p-4 text-center" role="alert">
+                    <AlertCircle className="mb-2 h-6 w-6 text-destructive" aria-hidden="true" />
                     <p className="text-sm font-medium text-foreground">This widget hit an error</p>
-                    <p className="text-xs max-w-[220px] truncate" title={this.state.error?.message}>
+                    <p className="max-w-[220px] truncate text-xs text-muted-foreground" title={this.state.error?.message}>
                         {this.state.error?.message || "Unknown error"}
                     </p>
-                    <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={this.reset}>
+                    <Button variant="outline" size="sm" className="mt-3" onClick={this.reset}>
                         <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                         Retry
                     </Button>

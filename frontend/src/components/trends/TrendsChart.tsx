@@ -13,7 +13,8 @@ import {
 import { Line } from 'react-chartjs-2';
 import { format } from 'date-fns';
 import { useIsDark } from '@/components/theme-provider';
-import { CHART_NEUTRAL, withAlpha } from '@/lib/bands';
+import { withAlpha } from '@/lib/bands';
+import { chartTheme } from '@/lib/chart-theme';
 import { hoverLinePlugin, trendsDecorPlugin } from '@/lib/chart-plugins';
 import type { Units } from '@/lib/format';
 import { formatMetricValue, formatMetricWithUnit, type MetricKind } from '@/lib/metrics';
@@ -65,9 +66,10 @@ export function TrendsChart({
     ariaLabel,
 }: TrendsChartProps) {
     const isDark = useIsDark();
+    const theme = chartTheme(isDark);
     const isScore = kind === 'score';
-    const gridColor = isDark ? withAlpha('#ffffff', 0.08) : withAlpha('#000000', 0.08);
-    const tickColor = isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight;
+    const gridColor = theme.grid;
+    const tickColor = theme.tick;
     const spanDays = Math.max(1, xMax - xMin);
 
     const data = useMemo(() => ({
@@ -141,27 +143,11 @@ export function TrendsChart({
                 baselineColor: color,
                 marker: selectedX !== null && selectedX >= xMin && selectedX <= xMax ? selectedX : null,
             },
-            hoverLine: { color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' },
-            legend: {
-                display: true,
-                position: 'top',
-                align: 'end',
-                labels: {
-                    boxWidth: 8,
-                    boxHeight: 8,
-                    usePointStyle: true,
-                    color: tickColor,
-                    font: { size: 10 },
-                },
-            },
+            hoverLine: { color: theme.hoverLine },
+            legend: { ...theme.legend, display: true },
             tooltip: {
                 enabled: true,
-                backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                titleColor: isDark ? '#f3f4f6' : '#111827',
-                bodyColor: isDark ? '#f3f4f6' : '#111827',
-                borderColor: isDark ? '#374151' : '#e5e7eb',
-                borderWidth: 1,
-                padding: 10,
+                ...theme.tooltip,
                 callbacks: {
                     title: (items) => (items[0] ? format(dateFromIndex(items[0].parsed.x ?? 0), 'EEE d MMM yyyy') : ''),
                     label: (item) => {
@@ -181,7 +167,7 @@ export function TrendsChart({
                 border: { display: false },
                 ticks: {
                     color: tickColor,
-                    font: { size: 10 },
+                    font: theme.tickFont,
                     maxRotation: 0,
                     autoSkip: true,
                     maxTicksLimit: 10,
@@ -198,7 +184,7 @@ export function TrendsChart({
                 max: isScore ? 100 : undefined,
                 grid: { color: gridColor, drawTicks: false },
                 border: { display: false },
-                ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 6, callback: tickFor(kind) },
+                ticks: { color: tickColor, font: theme.tickFont, maxTicksLimit: 6, callback: tickFor(kind) },
             },
             y1: {
                 type: 'linear',
@@ -208,7 +194,7 @@ export function TrendsChart({
                 max: secondary?.kind === 'score' ? 100 : undefined,
                 grid: { display: false, drawTicks: false },
                 border: { display: false },
-                ticks: { color: secondary?.color ?? tickColor, font: { size: 10 }, maxTicksLimit: 6, callback: tickFor(secondary?.kind ?? 'number') },
+                ticks: { color: tickColor, font: theme.tickFont, maxTicksLimit: 6, callback: tickFor(secondary?.kind ?? 'number') },
             },
         },
     };

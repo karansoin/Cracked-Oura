@@ -10,7 +10,10 @@ import {
 } from 'chart.js';
 import { useMemo } from 'react';
 import { Radar } from 'react-chartjs-2';
-import { useTheme } from '@/components/theme-provider';
+import { useIsDark } from '@/components/theme-provider';
+import { chartTheme } from '@/lib/chart-theme';
+import { humanizeKey } from '@/lib/format';
+import { withAlpha } from '@/lib/bands';
 import { useChartTable } from '@/contexts/ChartTableContext';
 import { formatNumber, seriesStats, type ChartTable } from '@/lib/series-table';
 import { SeriesTable } from './SeriesTable';
@@ -32,9 +35,9 @@ interface RadarChartCanvasProps {
     color?: string;
 }
 
-export function RadarChartCanvas({ data, dataKey, axisKey = "subject", color = "#8AB4F8" }: RadarChartCanvasProps) {
-    const { theme } = useTheme();
-    const isDark = theme === 'dark';
+export function RadarChartCanvas({ data, dataKey, axisKey = "subject", color = "#0072B2" }: RadarChartCanvasProps) {
+    const isDark = useIsDark();
+    const theme = chartTheme(isDark);
 
     const rows = useMemo(() => (Array.isArray(data) ? data : []), [data]);
     const values = useMemo(() => rows.map(d => (typeof d[dataKey] === 'number' && Number.isFinite(d[dataKey]) ? d[dataKey] : null)), [rows, dataKey]);
@@ -42,7 +45,7 @@ export function RadarChartCanvas({ data, dataKey, axisKey = "subject", color = "
 
     const table = useMemo<ChartTable | null>(() => (rows.length === 0 ? null : {
         columns: ['Contributor', 'Value'],
-        rows: rows.map((d, i) => [String(d[axisKey] ?? ''), values[i] === null ? '' : formatNumber(values[i])]),
+        rows: rows.map((d, i) => [humanizeKey(String(d[axisKey] ?? '')), values[i] === null ? '' : formatNumber(values[i])]),
     }), [rows, values, axisKey]);
     const viewAsTable = useChartTable(table);
 
@@ -56,24 +59,27 @@ export function RadarChartCanvas({ data, dataKey, axisKey = "subject", color = "
 
     if (rows.length === 0 || !stats) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm text-center p-4" role="img" aria-label={summary}>
-                <span className="font-medium">{rows.length === 0 ? 'No data for this day' : 'No score (ring data)'}</span>
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center text-sm" role="img" aria-label={summary}>
+                <span className="font-medium text-foreground">{rows.length === 0 ? 'No data for this day' : 'No score (ring data)'}</span>
+                <span className="mt-1 text-xs text-muted-foreground">Contributors come from Oura's daily summaries</span>
             </div>
         );
     }
 
     const chartData = {
-        labels: rows.map(d => String(d[axisKey] ?? '')),
+        labels: rows.map(d => humanizeKey(String(d[axisKey] ?? ''))),
         datasets: [
             {
-                label: 'Value',
+                label: 'Score',
                 data: values,
-                backgroundColor: `${color}80`, // 50% opacity
+                backgroundColor: withAlpha(color, 0.25),
                 borderColor: color,
                 borderWidth: 2,
+                pointRadius: 2.5,
+                pointHoverRadius: 4,
                 pointBackgroundColor: color,
-                pointBorderColor: '#fff',
-                pointHoverBackgroundColor: '#fff',
+                pointBorderColor: color,
+                pointHoverBackgroundColor: color,
                 pointHoverBorderColor: color,
             },
         ],
@@ -91,26 +97,21 @@ export function RadarChartCanvas({ data, dataKey, axisKey = "subject", color = "
             },
             tooltip: {
                 enabled: true,
-                backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                titleColor: isDark ? '#f3f4f6' : '#111827',
-                bodyColor: isDark ? '#f3f4f6' : '#111827',
-                borderColor: isDark ? '#374151' : '#e5e7eb',
-                borderWidth: 1,
+                ...theme.tooltip,
+                displayColors: false,
             }
         },
         scales: {
             r: {
                 angleLines: {
-                    color: isDark ? '#374151' : '#e5e7eb'
+                    color: theme.grid
                 },
                 grid: {
-                    color: isDark ? '#374151' : '#e5e7eb'
+                    color: theme.grid
                 },
                 pointLabels: {
-                    color: isDark ? '#9ca3af' : '#6b7280',
-                    font: {
-                        size: 11
-                    }
+                    color: theme.tick,
+                    font: theme.tickFont,
                 },
                 ticks: {
                     display: false, // Hide radial ticks for cleaner look

@@ -33,7 +33,8 @@ import { useAppStatus, toastError } from '@/contexts/AppStatusContext';
 import { useIsDark } from '@/components/theme-provider';
 import { api, type BleDevice, type BleState, type PairedRing } from '@/lib/api';
 import { formatBytes, formatCount, formatElapsed, formatRelative, formatRelativeUnix } from '@/lib/format';
-import { CHART_NEUTRAL, withAlpha } from '@/lib/bands';
+import { withAlpha } from '@/lib/bands';
+import { chartTheme } from '@/lib/chart-theme';
 import { cn } from '@/lib/utils';
 import { useElementWidth } from '@/hooks/useElementWidth';
 
@@ -68,6 +69,7 @@ function RssiBars({ rssi }: { rssi: number | null }) {
 
 function LiveHeartRateChart({ samples }: { samples: Array<{ t: number; bpm: number }> }) {
     const isDark = useIsDark();
+    const theme = chartTheme(isDark);
     const t0 = samples[0]?.t ?? 0;
     const points = samples.map(s => ({ x: s.t - t0, y: s.bpm }));
     const latest = samples[samples.length - 1]?.bpm ?? null;
@@ -78,21 +80,21 @@ function LiveHeartRateChart({ samples }: { samples: Array<{ t: number; bpm: numb
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 0 },
-        plugins: { legend: { display: false }, tooltip: { enabled: true, displayColors: false, callbacks: { title: () => '', label: (c) => `${c.parsed.y ?? '—'} bpm at ${Math.round(c.parsed.x ?? 0)} s` } } },
+        plugins: { legend: { display: false }, tooltip: { enabled: true, ...theme.tooltip, displayColors: false, callbacks: { title: () => '', label: (c) => `${c.parsed.y ?? '—'} bpm at ${Math.round(c.parsed.x ?? 0)} s` } } },
         scales: {
             x: {
                 type: 'linear',
                 min: 0,
                 grid: { display: false },
                 border: { display: false },
-                ticks: { color: isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight, font: { size: 10 }, callback: (v) => `${v}s` },
+                ticks: { color: theme.tick, font: theme.tickFont, maxRotation: 0, callback: (v) => `${v} s` },
             },
             y: {
                 suggestedMin: 40,
                 suggestedMax: 120,
-                grid: { color: isDark ? withAlpha('#ffffff', 0.08) : withAlpha('#000000', 0.08), drawTicks: false },
+                grid: { color: theme.grid, drawTicks: false },
                 border: { display: false },
-                ticks: { color: isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight, font: { size: 10 }, maxTicksLimit: 6 },
+                ticks: { color: theme.tick, font: theme.tickFont, maxTicksLimit: 6 },
             },
         },
     };
@@ -113,12 +115,12 @@ function LiveHeartRateChart({ samples }: { samples: Array<{ t: number; bpm: numb
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-baseline gap-4 text-sm">
-                <span className="text-3xl font-bold tabular-nums">{latest ?? '—'}<span className="text-sm font-normal text-muted-foreground ml-1">bpm</span></span>
-                {min !== null && max !== null && <span className="text-muted-foreground tabular-nums">min {min} · max {max} · {samples.length} beats</span>}
+                <span className="text-3xl font-semibold tabular-nums leading-none tracking-tight">{latest ?? '—'}<span className="ml-1 text-sm font-normal text-muted-foreground">bpm</span></span>
+                {min !== null && max !== null && <span className="text-xs tabular-nums text-muted-foreground">min {min} · max {max} · {samples.length} beats</span>}
             </div>
             <div className="h-40" role="img" aria-label={`Live heart rate, ${samples.length} samples${latest ? `, latest ${latest} bpm` : ''}`}>
                 {samples.length > 1 ? <Line data={data} options={options} /> : (
-                    <div className="h-full flex items-center justify-center text-xs text-muted-foreground border border-dashed rounded-md">Waiting for the first beats…</div>
+                    <div className="flex h-full items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">Waiting for the first beats…</div>
                 )}
             </div>
         </div>
@@ -197,20 +199,20 @@ export function RingPage() {
     const showLive = state === 'live' || liveSamples.length > 0;
 
     return (
-        <div ref={pageRef} className="max-w-5xl mx-auto flex flex-col gap-6">
+        <div ref={pageRef} className="mx-auto flex max-w-5xl flex-col gap-4">
             {/* (a) Status card */}
             <Card>
                 <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-4">
                         <div className="flex items-center gap-3">
-                            <span className={cn('inline-flex h-10 w-10 items-center justify-center rounded-full border', state === 'error' ? 'text-destructive border-destructive/40' : 'text-foreground')}>
+                            <span className={cn('inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-background', state === 'error' ? 'text-destructive border-destructive/40' : 'text-foreground')}>
                                 {state === 'error' ? <AlertTriangle className="h-5 w-5" aria-hidden="true" />
                                     : state === 'unavailable' ? <BluetoothOff className="h-5 w-5" aria-hidden="true" />
                                         : busy ? <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                                             : <Bluetooth className="h-5 w-5" aria-hidden="true" />}
                             </span>
                             <div>
-                                <CardTitle className="text-base" aria-live="polite">{backendOk ? (STATE_LABEL[state] ?? state) : 'Backend offline'}</CardTitle>
+                                <CardTitle aria-live="polite">{backendOk ? (STATE_LABEL[state] ?? state) : 'Backend offline'}</CardTitle>
                                 <CardDescription>
                                     {backendOk
                                         ? (ble?.error || ble?.message || (ble ? 'Ready.' : 'Connecting to the local backend…'))
@@ -228,7 +230,7 @@ export function RingPage() {
                 {(busy || ble?.progress) && (
                     <CardContent className="pt-0">
                         <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                            <div><dt className="text-xs text-muted-foreground">Elapsed</dt><dd className="tabular-nums font-medium">{formatElapsed(elapsed)}</dd></div>
+                            <div><dt className="text-xs text-muted-foreground">Elapsed</dt><dd className="font-medium tabular-nums">{formatElapsed(elapsed)}</dd></div>
                             <div><dt className="text-xs text-muted-foreground">Events read</dt><dd className="tabular-nums font-medium">{formatCount(ble?.progress?.events ?? null)}</dd></div>
                             <div><dt className="text-xs text-muted-foreground">New events</dt><dd className="tabular-nums font-medium">{formatCount(ble?.progress?.new ?? null)}</dd></div>
                             <div><dt className="text-xs text-muted-foreground">Bytes left</dt><dd className="tabular-nums font-medium">{formatBytes(ble?.progress?.bytes_left ?? null)}</dd></div>
@@ -247,13 +249,13 @@ export function RingPage() {
                 </Alert>
             )}
 
-            <div className={cn("grid gap-6", twoCol && "grid-cols-2")}>
+            <div className={cn("grid gap-4", twoCol && "grid-cols-2")}>
                 {/* (b) Find your ring */}
                 <Card>
                     <CardHeader className="pb-3">
                         <div className="flex items-center justify-between gap-3">
                             <div>
-                                <CardTitle className="text-base">Find your ring</CardTitle>
+                                <CardTitle>Find your ring</CardTitle>
                                 <CardDescription>
                                     {ble?.last_scan_at ? `Last scan ${formatRelativeUnix(ble.last_scan_at)}` : 'Put the ring on or near this computer, then scan.'}
                                 </CardDescription>
@@ -271,7 +273,7 @@ export function RingPage() {
                     </CardHeader>
                     <CardContent className="pt-0">
                         {devices.length === 0 ? (
-                            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                            <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
                                 {state === 'scanning' ? 'Listening for nearby rings…' : 'No devices found yet.'}
                             </div>
                         ) : (
@@ -287,7 +289,7 @@ export function RingPage() {
                                                     {d.is_ring && !d.is_charger && <Badge variant="outline">Ring</Badge>}
                                                     {preferred === d.address && <Badge variant="outline">Preferred</Badge>}
                                                 </div>
-                                                <span className="text-[11px] text-muted-foreground font-mono truncate block">{d.address}</span>
+                                                <span className="block truncate font-mono text-xs text-muted-foreground">{d.address}</span>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0">
@@ -322,7 +324,7 @@ export function RingPage() {
                 <CardHeader className="pb-3">
                     <div className="flex items-center justify-between gap-3">
                         <div>
-                            <CardTitle className="text-base">Paired rings</CardTitle>
+                            <CardTitle>Paired rings</CardTitle>
                             <CardDescription>Rings this computer has a key for, and what has been read from them.</CardDescription>
                         </div>
                         <Button variant="ghost" size="sm" onClick={() => void loadRings()} className="gap-1.5" aria-label="Refresh paired rings">
@@ -332,7 +334,7 @@ export function RingPage() {
                 </CardHeader>
                 <CardContent className="pt-0 space-y-4">
                     {rings.length > 0 && (
-                        <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                        <div className="flex items-center justify-between gap-4 rounded-md border bg-background p-3">
                             <div>
                                 <p className="text-sm font-medium">Auto-sync</p>
                                 <p className="text-xs text-muted-foreground">Every 30 minutes, if the ring is nearby (on its charger works best) and not connected to a phone.</p>
@@ -348,17 +350,17 @@ export function RingPage() {
                     )}
                     {ringsError && <p className="text-sm text-destructive">{ringsError}</p>}
                     {!ringsError && rings.length === 0 && (
-                        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
                             No paired rings yet. Scan above and click Pair on your ring.
                         </div>
                     )}
                     <ul className={cn("grid gap-3", pageWidth >= 640 && "grid-cols-2")} role="list">
                         {rings.map(r => (
-                            <li key={r.serial} className="rounded-lg border p-4 flex flex-col gap-3">
+                            <li key={r.serial} className="flex flex-col gap-3 rounded-md border bg-background p-4">
                                 <div className="flex items-start justify-between gap-2">
                                     <div className="min-w-0">
-                                        <p className="font-medium truncate">{r.name || ble?.ring?.model || 'Oura ring'}</p>
-                                        <p className="text-xs text-muted-foreground font-mono truncate">Serial {r.serial}</p>
+                                        <p className="truncate font-medium">{r.name || ble?.ring?.model || 'Oura ring'}</p>
+                                        <p className="truncate font-mono text-xs text-muted-foreground">Serial {r.serial}</p>
                                     </div>
                                     {!r.paired_here && <Badge variant="secondary">Key elsewhere</Badge>}
                                 </div>
@@ -397,7 +399,7 @@ export function RingPage() {
                 <CardHeader className="pb-3">
                     <div className="flex items-center justify-between gap-3">
                         <div>
-                            <CardTitle className="text-base">Live heart rate</CardTitle>
+                            <CardTitle>Live heart rate</CardTitle>
                             <CardDescription>Streams beats from a paired ring for {LIVE_SECONDS} seconds. Wear the ring.</CardDescription>
                         </div>
                         <Button
@@ -421,11 +423,11 @@ export function RingPage() {
             {/* (e) Activity log */}
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Activity log</CardTitle>
+                    <CardTitle>Activity log</CardTitle>
                     <CardDescription>Last {Math.min(30, logLines.length)} lines from the Bluetooth worker.</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-0">
-                    <div className="rounded-md bg-muted/50 border p-3 h-48 overflow-y-auto font-mono text-[11px] leading-relaxed" role="log" aria-live="polite">
+                    <div className="h-48 overflow-y-auto rounded-md border bg-background p-3 font-mono text-xs leading-relaxed" role="log" aria-live="polite">
                         {logLines.length === 0 && <span className="text-muted-foreground">No activity yet.</span>}
                         {logLines.slice(-30).map((line, i) => (
                             <div key={`${line.ts}-${i}`} className={cn(line.level === 'error' && 'text-destructive', line.level === 'warning' && 'text-amber-600 dark:text-amber-400')}>

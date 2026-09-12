@@ -150,9 +150,9 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
 
     if (keysToFetch.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
-                <span className="text-sm font-medium">No data selected</span>
-                <span className="text-xs opacity-70 mt-1">Edit widget to select data</span>
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center">
+                <span className="text-sm font-medium text-foreground">No data selected</span>
+                <span className="mt-1 text-xs text-muted-foreground">Edit the widget to choose a field</span>
             </div>
         );
     }
@@ -160,18 +160,18 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
     if (loading) return <WidgetSkeleton kind={chartType === 'table' ? 'table' : 'chart'} />;
     if (error) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-center p-4 rounded-lg bg-secondary/10" role="alert">
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed border-destructive/40 p-4 text-center" role="alert">
                 <span className="text-sm font-medium text-foreground">Couldn't load this data</span>
-                <span className="text-xs text-muted-foreground mt-1 max-w-[240px] truncate" title={error}>{error}</span>
+                <span className="mt-1 max-w-[240px] truncate text-xs text-muted-foreground" title={error}>{error}</span>
             </div>
         );
     }
 
     if (aggregatedData.data.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
-                <span className="text-sm font-medium">No data for this period</span>
-                <span className="text-xs opacity-70 mt-1">Try selecting a different date range</span>
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center">
+                <span className="text-sm font-medium text-foreground">No data for this period</span>
+                <span className="mt-1 text-xs text-muted-foreground">Try a different date range</span>
             </div>
         );
     }

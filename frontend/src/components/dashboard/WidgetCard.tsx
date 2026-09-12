@@ -7,6 +7,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Settings, Trash2, GripHorizontal, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +36,10 @@ interface WidgetCardProps {
     menuItems?: WidgetMenuItem[];
 }
 
+/**
+ * Dashboard card chrome: 16px padding, one radius/border, 28px header controls,
+ * a subtle border on hover, and titles that wrap to two lines before clipping.
+ */
 export function WidgetCard({
     title,
     subtitle,
@@ -52,8 +57,8 @@ export function WidgetCard({
             <DropdownMenuTrigger asChild>
                 <Button
                     variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                    size="icon-sm"
+                    className="text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
                     aria-label={`${title} options`}
                     onClick={(e) => e.stopPropagation()}
                 >
@@ -69,6 +74,7 @@ export function WidgetCard({
                 ) : (
                     <DropdownMenuCheckboxItem
                         key={item.id}
+                        className="gap-2 [&_svg]:size-4 [&_svg]:shrink-0"
                         disabled={item.disabled}
                         checked={item.checked}
                         onCheckedChange={item.onSelect}
@@ -82,49 +88,61 @@ export function WidgetCard({
     );
 
     const editControls = isEditing && (
-        <div className="flex items-center gap-1">
-            <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                aria-label={`Edit ${title}`}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit?.();
-                }}
-            >
-                <Settings className="h-4 w-4" />
-            </Button>
-            <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-destructive hover:text-destructive"
-                aria-label={`Delete ${title}`}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete?.();
-                }}
-            >
-                <Trash2 className="h-4 w-4" />
-            </Button>
+        <div className="flex items-center gap-0.5">
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label={`Edit ${title}`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onEdit?.();
+                        }}
+                    >
+                        <Settings className="h-4 w-4" />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit widget</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        aria-label={`Delete ${title}`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete?.();
+                        }}
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent>Remove widget</TooltipContent>
+            </Tooltip>
         </div>
     );
 
     const dragHandle = isEditing && (
         <div
-            className="absolute top-0 left-1/2 -translate-x-1/2 z-[100] h-5 w-12 flex items-center justify-center bg-secondary/90 hover:bg-secondary backdrop-blur-[2px] rounded-b-lg border-b border-x border-white/10 transition-all shadow-sm cursor-move drag-handle opacity-0 group-hover:opacity-100"
+            className="drag-handle absolute left-1/2 top-0 z-[100] flex h-5 w-12 -translate-x-1/2 cursor-move items-center justify-center rounded-b-md border-x border-b bg-popover opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
             title="Drag to move"
         >
-            <GripHorizontal className="w-4 h-4 text-muted-foreground" />
+            <GripHorizontal className="h-4 w-4 text-muted-foreground" />
         </div>
     );
 
+    const hoverClass = "hover:border-foreground/20";
+
     if (compact) {
         return (
-            <Card className={cn("h-full flex flex-row items-center gap-3 px-4 relative", className)}>
+            <Card className={cn("relative flex h-full flex-row items-center gap-3 overflow-hidden px-4", hoverClass, className)}>
                 {dragHandle}
-                <CardTitle className="text-xs font-medium text-muted-foreground truncate min-w-0 flex-1" title={title}>{title}</CardTitle>
-                <div className="shrink-0 flex items-center justify-end gap-2">
+                <CardTitle className="line-clamp-3 min-w-[3.5rem] flex-1 text-xs font-medium leading-snug text-muted-foreground" title={title}>{title}</CardTitle>
+                <div className="flex shrink-0 items-center justify-end gap-1">
                     {children}
                     {editControls}
                 </div>
@@ -133,22 +151,22 @@ export function WidgetCard({
     }
 
     return (
-        <Card className={cn("h-full flex flex-col relative", className)}>
+        <Card className={cn("relative flex h-full flex-col overflow-hidden", hoverClass, className)}>
             {dragHandle}
-            <CardHeader className={cn("flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4 relative z-[50]")}>
-                <div className="flex flex-col min-w-0">
-                    <CardTitle className="text-sm font-medium truncate">{title}</CardTitle>
-                    {subtitle && <p className="text-[10px] text-muted-foreground">{subtitle}</p>}
+            <CardHeader className="relative z-[50] flex flex-row items-start justify-between gap-2 space-y-0 px-4 pb-2 pt-3">
+                <div className="flex min-w-[35%] flex-1 flex-col pt-1">
+                    <CardTitle className="line-clamp-2 text-base font-medium leading-tight" title={title}>{title}</CardTitle>
+                    {subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>}
                 </div>
-                <div className="flex items-center gap-2 relative z-[60]">
+                <div className="relative z-[60] flex min-w-0 items-center gap-1">
                     {headerContent}
                     {editControls}
                     {overflowMenu}
                 </div>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 p-4 pt-0 relative z-[1]">
+            <CardContent className="relative z-[1] min-h-0 flex-1 p-4 pt-0">
                 {children}
             </CardContent>
-        </Card >
+        </Card>
     );
 }

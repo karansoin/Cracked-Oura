@@ -5,7 +5,7 @@ import { AppStatusProvider, useAppStatus } from "@/contexts/AppStatusContext";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { Button } from "@/components/ui/button";
-import { Edit2, Check, CalendarCheck } from "lucide-react";
+import { Edit2, Check, CalendarCheck, Plus } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { SettingsPanel } from "@/components/dashboard/SettingsPanel";
 import { DataSyncPanel } from "@/components/dashboard/DataSyncPanel";
@@ -158,13 +158,13 @@ function DashboardApp() {
         return (
             <>
                 {showNoDataBanner && (
-                    <div className="mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed bg-card px-4 py-3 text-sm" role="status">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed bg-card px-4 py-3 text-sm" role="status">
                         <span>
                             <span className="font-medium">No data for {format(selectedDate, 'EEE d MMM yyyy')}.</span>{' '}
                             {latestWithData && <span className="text-muted-foreground">Your most recent day with data is {formatDay(latestWithData)}.</span>}
                         </span>
                         {latestWithData && (
-                            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setSelectedDate(parseISO(latestWithData))}>
+                            <Button size="sm" variant="outline" onClick={() => setSelectedDate(parseISO(latestWithData))}>
                                 <CalendarCheck className="h-3.5 w-3.5" aria-hidden="true" /> Go to {formatDay(latestWithData)}
                             </Button>
                         )}
@@ -225,24 +225,24 @@ function DashboardApp() {
                     activeView === 'dashboard' && hasData !== false ? (
                         <>
                             {isEditing && (
-                                <Button onClick={() => startEditingWidget()} variant="secondary" size="sm">
-                                    Add Widget
+                                <Button onClick={() => startEditingWidget()} variant="secondary">
+                                    <Plus className="h-4 w-4" aria-hidden="true" />
+                                    Add widget
                                 </Button>
                             )}
                             <Button
                                 variant={isEditing ? "default" : "outline"}
-                                size="sm"
                                 onClick={() => {
                                     if (isEditing) {
                                         if (activePanel === 'editor') setActivePanel('none');
                                     }
                                     setIsEditing(!isEditing);
                                 }}
-                                className="gap-2"
                                 title="Toggle edit mode (E)"
+                                aria-pressed={isEditing}
                             >
                                 {isEditing ? <Check className="h-4 w-4" aria-hidden="true" /> : <Edit2 className="h-4 w-4" aria-hidden="true" />}
-                                {isEditing ? "Done Editing" : "Edit Layout"}
+                                {isEditing ? "Done" : "Edit layout"}
                             </Button>
                         </>
                     ) : null
@@ -258,7 +258,7 @@ function DashboardApp() {
                 onOpenChange={(o) => !o && setResetTarget(null)}
                 title="Reset this dashboard to the Overview template?"
                 description={<p>All widgets on <strong>{dashboards.find(d => d.id === resetTarget)?.name ?? 'this dashboard'}</strong> will be replaced with the default Overview layout. This cannot be undone.</p>}
-                confirmLabel="Reset Overview"
+                confirmLabel="Reset dashboard"
                 destructive
                 onConfirm={() => { if (resetTarget) resetOverview(resetTarget); }}
             />
@@ -266,10 +266,22 @@ function DashboardApp() {
             <Toaster
                 position="bottom-right"
                 theme={isDark ? 'dark' : 'light'}
-                richColors
                 closeButton
                 visibleToasts={3}
                 duration={8000}
+                gap={8}
+                toastOptions={{
+                    classNames: {
+                        toast: '!rounded-lg !border-border !bg-popover !text-popover-foreground !shadow-md',
+                        title: '!text-sm !font-medium',
+                        description: '!text-xs !text-muted-foreground',
+                        closeButton: '!h-6 !w-6 !border-border !bg-popover !text-muted-foreground hover:!bg-accent hover:!text-foreground',
+                        success: '[&_[data-icon]]:text-[#009E73] dark:[&_[data-icon]]:text-[#3FC9A2]',
+                        error: '[&_[data-icon]]:text-destructive',
+                        info: '[&_[data-icon]]:text-[#0072B2] dark:[&_[data-icon]]:text-[#5AA9E6]',
+                        warning: '[&_[data-icon]]:text-[#9A6400] dark:[&_[data-icon]]:text-[#F2B84B]',
+                    },
+                }}
             />
         </>
     );

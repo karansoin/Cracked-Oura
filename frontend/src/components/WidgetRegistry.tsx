@@ -11,7 +11,7 @@ import { ContributorsWidget } from './widgets/ContributorsWidget';
 import { WidgetSkeleton } from './widgets/WidgetSkeleton';
 import { useAppStatus } from '@/contexts/AppStatusContext';
 import { getBand } from '@/lib/bands';
-import { formatDurationSeconds, formatMinutes, formatTemperatureDeviation } from '@/lib/format';
+import { formatDurationSeconds, formatMinutes, formatTemperatureDeviation, humanizeKey } from '@/lib/format';
 import type { WidgetInstance } from '@/types';
 
 interface WidgetRegistryProps {
@@ -102,7 +102,9 @@ export const WidgetRegistry = ({ widget, data, date, onUpdate, compact = false, 
         case 'metric': {
             const key = widget.config.dataKey || '';
             const raw = resolveData(key);
-            const metricLabel = key || 'Metric';
+            // Caption under the number; dropped when it would just repeat the card title.
+            const humanized = humanizeKey(key);
+            const metricLabel = humanized && humanized.toLowerCase() !== widget.title.trim().toLowerCase() ? humanized : undefined;
             const field = key.split('.').pop() ?? key;
 
             let displayValue: string | number = '—';
@@ -239,8 +241,9 @@ export const WidgetRegistry = ({ widget, data, date, onUpdate, compact = false, 
         }
         default:
             return (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                    Unknown Widget Type: {widget.type}
+                <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center">
+                    <span className="text-sm font-medium text-foreground">Unknown widget type</span>
+                    <span className="mt-1 font-mono text-xs text-muted-foreground">{widget.type}</span>
                 </div>
             );
     }

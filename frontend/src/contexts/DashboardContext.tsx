@@ -149,7 +149,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         const newId = `dashboard-${Date.now()}`;
         const newDashboard: Dashboard = {
             id: newId,
-            name: 'New Dashboard',
+            name: 'New dashboard',
             widgets: [],
             layout: []
         };
@@ -221,7 +221,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             const newWidget: WidgetInstance = {
                 id: newId,
                 type: 'score',
-                title: 'New Widget',
+                title: 'New widget',
                 width: 'col-span-4',
                 height: 'h-40',
                 config: { dataKey: 'sleep.score' }

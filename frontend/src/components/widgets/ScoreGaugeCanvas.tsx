@@ -8,7 +8,8 @@ import {
 import { Doughnut } from 'react-chartjs-2';
 import { cn } from '@/lib/utils';
 import { useIsDark } from '@/components/theme-provider';
-import { CHART_NEUTRAL, getBand, bandColor } from '@/lib/bands';
+import { CHART_NEUTRAL, getBand, bandColor, bandTextColor } from '@/lib/bands';
+import { useElementWidth } from '@/hooks/useElementWidth';
 
 // Register ChartJS components
 ChartJS.register(
@@ -30,19 +31,25 @@ interface ScoreGaugeCanvasProps {
 
 export function ScoreGaugeCanvas({ score, title, color, className, emptyHint = 'No score (ring data)' }: ScoreGaugeCanvasProps) {
     const isDark = useIsDark();
+    const [ref, width] = useElementWidth<HTMLDivElement>();
 
     const hasScore = score !== null && Number.isFinite(score);
     const band = getBand(hasScore ? score : null);
-    const finalColor = hasScore ? (color || bandColor(band, isDark)) : bandColor(null, isDark);
+    const arcColor = hasScore ? (color || bandColor(band, isDark)) : bandColor(null, isDark);
+    const textColor = hasScore ? (color || bandTextColor(band, isDark)) : bandTextColor(null, isDark);
     const trackColor = isDark ? CHART_NEUTRAL.trackDark : CHART_NEUTRAL.trackLight;
     const clamped = hasScore ? Math.max(0, Math.min(100, score)) : 0;
+
+    // The number scales with the card so it never collides with the arc when the
+    // dashboard is squeezed by a side panel.
+    const small = width > 0 && width < 170;
 
     const chartData = {
         labels: ['Score', 'Remaining'],
         datasets: [
             {
                 data: hasScore ? [clamped, 100 - clamped] : [0, 100],
-                backgroundColor: [finalColor, trackColor],
+                backgroundColor: [arcColor, trackColor],
                 borderWidth: 0,
                 borderRadius: 20, // Rounded ends
                 cutout: '85%', // Thickness of the ring
@@ -73,15 +80,15 @@ export function ScoreGaugeCanvas({ score, title, color, className, emptyHint = '
         : `${title ?? 'Score'}: no score available`;
 
     return (
-        <div className={cn("h-full w-full flex flex-col items-center justify-center relative", className)}>
-            <div className="w-full h-full p-2" role="img" aria-label={ariaLabel}>
+        <div ref={ref} className={cn("relative flex h-full w-full flex-col items-center justify-center", className)}>
+            <div className="h-full w-full p-1" role="img" aria-label={ariaLabel}>
                 <Doughnut data={chartData} options={options} />
             </div>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-4xl font-bold tabular-nums leading-none" style={{ color: finalColor }}>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
+                <span className={cn("font-semibold tabular-nums leading-none tracking-tight", small ? "text-2xl" : "text-4xl")} style={{ color: textColor }}>
                     {hasScore ? Math.round(score) : '—'}
                 </span>
-                <span className="text-sm font-medium mt-1.5" style={{ color: finalColor }}>
+                <span className={cn("mt-1.5 font-medium", small ? "text-xs" : "text-sm")} style={{ color: textColor }}>
                     {hasScore ? `${band?.glyph ?? ''} ${band?.label ?? ''}`.trim() : emptyHint}
                 </span>
             </div>

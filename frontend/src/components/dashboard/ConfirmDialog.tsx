@@ -53,12 +53,12 @@ export function ConfirmDialog({
                         <div className="text-sm text-muted-foreground">{description}</div>
                     </DialogDescription>
                 </DialogHeader>
-                <DialogFooter>
+                <DialogFooter className="gap-2 sm:space-x-0">
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
                         {cancelLabel}
                     </Button>
                     <Button variant={destructive ? 'destructive' : 'default'} onClick={handleConfirm} disabled={busy} autoFocus={!destructive}>
-                        {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+                        {busy && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                         {confirmLabel}
                     </Button>
                 </DialogFooter>

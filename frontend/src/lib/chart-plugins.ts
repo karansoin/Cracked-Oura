@@ -136,7 +136,7 @@ export const lowestPointPlugin: Plugin<'line', LowestPointOptions> = {
         ctx.arc(x, y, 3.5, 0, Math.PI * 2);
         ctx.fillStyle = opts.color;
         ctx.fill();
-        ctx.font = '10px system-ui, sans-serif';
+        ctx.font = '600 11px ui-sans-serif, system-ui, -apple-system, sans-serif';
         ctx.fillStyle = opts.color;
         const width = ctx.measureText(opts.label).width;
         const left = x + 6 + width > chartArea.right ? x - 6 - width : x + 6;

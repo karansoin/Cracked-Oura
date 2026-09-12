@@ -11,29 +11,30 @@ interface MetricWidgetProps {
     hint?: string;
 }
 
+/** Big-number widget. Numbers are tabular; the unit sits on the baseline in muted text. */
 export function MetricWidget({ value, label, unit, color, compact = false, hint }: MetricWidgetProps) {
     const isEmpty = value === '—' || value === '' || value === null || value === undefined;
 
     if (compact) {
         return (
-            <div className="flex items-baseline justify-end gap-1.5 h-full w-full whitespace-nowrap" aria-label={`${label ?? ''} ${value}${unit ? ' ' + unit : ''}`.trim()}>
-                <span className={cn("text-xl font-semibold tabular-nums", isEmpty && "text-muted-foreground")} style={{ color: isEmpty ? undefined : color }}>
+            <div className="flex h-full w-full items-baseline justify-end gap-1 whitespace-nowrap" aria-label={`${label ?? ''} ${value}${unit ? ' ' + unit : ''}`.trim()}>
+                <span className={cn("text-xl font-semibold tabular-nums leading-none", isEmpty && "text-muted-foreground")} style={{ color: isEmpty ? undefined : color }}>
                     {value}
                 </span>
                 {unit && !isEmpty && <span className="text-xs text-muted-foreground">{unit}</span>}
-                {hint && <span className="text-[10px] text-muted-foreground ml-1">{hint}</span>}
+                {hint && <span className="ml-1 text-xs text-muted-foreground">{hint}</span>}
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col items-center justify-center h-full">
-            <div className={cn("text-4xl font-bold tabular-nums", isEmpty && "text-muted-foreground")} style={{ color: isEmpty ? undefined : color }}>
-                {value}
-                {unit && !isEmpty && <span className="text-xl ml-1 text-muted-foreground">{unit}</span>}
+        <div className="flex h-full flex-col items-center justify-center">
+            <div className={cn("flex items-baseline gap-1.5 text-4xl font-semibold tabular-nums leading-none tracking-tight", isEmpty && "text-muted-foreground")} style={{ color: isEmpty ? undefined : color }}>
+                <span>{value}</span>
+                {unit && !isEmpty && <span className="text-base font-normal text-muted-foreground">{unit}</span>}
             </div>
-            {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
-            {label && <div className="text-sm text-muted-foreground mt-2">{label}</div>}
+            {hint && <div className="mt-2 text-xs text-muted-foreground">{hint}</div>}
+            {label && <div className="mt-1 text-xs text-muted-foreground">{label}</div>}
         </div>
     );
 }

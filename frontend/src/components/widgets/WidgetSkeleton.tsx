@@ -14,26 +14,32 @@ export function WidgetSkeleton({ kind = 'chart', compact = false }: { kind?: Ske
     switch (kind) {
         case 'gauge':
             return (
-                <div className="flex flex-col items-center justify-center h-full gap-2" aria-busy="true" aria-label="Loading">
-                    <Skeleton className="h-24 w-24 rounded-full" />
+                <div className="flex h-full flex-col items-center justify-center gap-2" aria-busy="true" aria-label="Loading">
+                    <div className="relative flex h-28 w-28 items-center justify-center">
+                        <Skeleton className="absolute inset-0 rounded-full" />
+                        <div className="relative h-[calc(100%-1.25rem)] w-[calc(100%-1.25rem)] rounded-full bg-card" />
+                    </div>
                     <Skeleton className="h-3 w-16" />
                 </div>
             );
         case 'metric':
             return (
-                <div className="flex flex-col items-center justify-center h-full gap-2" aria-busy="true" aria-label="Loading">
-                    <Skeleton className="h-9 w-24" />
-                    <Skeleton className="h-3 w-20" />
+                <div className="flex h-full flex-col items-center justify-center gap-2" aria-busy="true" aria-label="Loading">
+                    <Skeleton className="h-8 w-24" />
+                    <Skeleton className="h-3 w-16" />
                 </div>
             );
         case 'table':
         case 'list':
             return (
-                <div className="flex flex-col gap-2 h-full pt-1" aria-busy="true" aria-label="Loading">
+                <div className="flex h-full flex-col gap-3 pt-1" aria-busy="true" aria-label="Loading">
                     {Array.from({ length: 6 }).map((_, i) => (
-                        <div key={i} className="flex items-center justify-between gap-4">
-                            <Skeleton className="h-3 w-1/3" />
-                            <Skeleton className="h-3 w-12" />
+                        <div key={i} className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between gap-4">
+                                <Skeleton className="h-3 w-1/3" />
+                                <Skeleton className="h-3 w-12" />
+                            </div>
+                            {kind === 'list' && <Skeleton className="h-1 w-full rounded-full" />}
                         </div>
                     ))}
                 </div>

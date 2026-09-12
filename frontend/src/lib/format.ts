@@ -73,11 +73,35 @@ export function formatRelativeUnix(unix: number | null | undefined): string {
     return formatRelative(new Date(unix * 1000).toISOString());
 }
 
-/** `snake_case_key` -> "Snake case key". */
+/** Tokens that stay upper-case (or keep their casing) when a key is humanised. */
+const ACRONYMS: Record<string, string> = {
+    hrv: 'HRV',
+    hr: 'HR',
+    rem: 'REM',
+    spo2: 'SpO₂',
+    met: 'MET',
+    mets: 'METs',
+    vo2: 'VO₂',
+    vo2max: 'VO₂ max',
+    bpm: 'bpm',
+    id: 'ID',
+    json: 'JSON',
+};
+
+/** `snake_case_key` / `domain.snake_key` -> "Snake case key" (sentence case, acronyms kept). */
 export function humanizeKey(key: string): string {
     const last = key.split('.').pop() ?? key;
-    const spaced = last.replace(/_/g, ' ').trim();
-    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+    const words = last.replace(/_/g, ' ').trim().split(/\s+/).filter(Boolean)
+        .map(w => ACRONYMS[w.toLowerCase()] ?? w.toLowerCase());
+    if (words.length === 0) return '';
+    const first = words[0];
+    words[0] = ACRONYMS[first.toLowerCase()] ?? first.charAt(0).toUpperCase() + first.slice(1);
+    return words.join(' ');
+}
+
+/** Full-path variant for ambiguous series: `sleep.score` -> "Sleep score". */
+export function humanizePath(key: string): string {
+    return humanizeKey(key.replace(/\./g, '_'));
 }
 
 /** Thousands separators. */

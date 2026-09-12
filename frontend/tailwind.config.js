@@ -15,6 +15,19 @@ module.exports = {
         "2xl": "1400px",
       },
     },
+    // One desktop type scale: 11 captions, 13 body, 14 titles.
+    fontSize: {
+      "2xs": ["10px", { lineHeight: "14px" }],
+      xs: ["11px", { lineHeight: "16px" }],
+      sm: ["13px", { lineHeight: "18px" }],
+      base: ["14px", { lineHeight: "20px" }],
+      lg: ["16px", { lineHeight: "24px" }],
+      xl: ["18px", { lineHeight: "26px" }],
+      "2xl": ["22px", { lineHeight: "28px" }],
+      "3xl": ["28px", { lineHeight: "32px" }],
+      "4xl": ["32px", { lineHeight: "36px" }],
+      "5xl": ["40px", { lineHeight: "1" }],
+    },
     extend: {
       colors: {
         border: "hsl(var(--border))",

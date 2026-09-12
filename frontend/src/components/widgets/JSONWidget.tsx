@@ -19,13 +19,14 @@ const JsonNode = ({ label, data, level = 0 }: { label: string, data: unknown, le
     const isEmpty = obj !== null && Object.keys(obj).length === 0;
 
     if (obj === null) {
-        let color = "text-green-400"; // Strings
-        if (typeof data === 'number') color = "text-blue-400";
-        if (typeof data === 'boolean') color = "text-purple-400";
-        if (data === null) color = "text-gray-400";
+        // Okabe-Ito palette (text-safe variants on light): strings green, numbers blue, booleans purple.
+        let color = "text-[#007A59] dark:text-[#3FC9A2]";
+        if (typeof data === 'number') color = "text-[#0072B2] dark:text-[#5AA9E6]";
+        if (typeof data === 'boolean') color = "text-[#A0568A] dark:text-[#CC79A7]";
+        if (data === null) color = "text-muted-foreground";
 
         return (
-            <div style={{ paddingLeft: level * 20 }} className="font-mono text-xs py-0.5 hover:bg-white/5 rounded px-1 flex items-start">
+            <div style={{ paddingLeft: level * 20 }} className="flex items-start rounded px-1 py-0.5 font-mono text-xs hover:bg-accent/60">
                 <span className="text-muted-foreground mr-2 shrink-0">{label}:</span>
                 <span className={cn("break-all", color)}>{JSON.stringify(data)}</span>
             </div>
@@ -34,12 +35,15 @@ const JsonNode = ({ label, data, level = 0 }: { label: string, data: unknown, le
 
     return (
         <div className="font-mono text-xs">
-            <div
+            <button
+                type="button"
                 onClick={() => !isEmpty && setIsOpen(!isOpen)}
+                aria-expanded={isEmpty ? undefined : isOpen}
+                disabled={isEmpty}
                 style={{ paddingLeft: level * 20 }}
                 className={cn(
-                    "flex items-center gap-1 cursor-pointer hover:bg-white/5 rounded px-1 py-0.5 select-none",
-                    isEmpty && "opacity-50 cursor-default"
+                    "flex w-full select-none items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    isEmpty && "cursor-default opacity-50"
                 )}
             >
                 <span className="text-muted-foreground w-4 flex justify-center shrink-0">
@@ -47,9 +51,9 @@ const JsonNode = ({ label, data, level = 0 }: { label: string, data: unknown, le
                 </span>
                 <span className="text-foreground font-medium">{label}</span>
                 {Array.isArray(data) && (
-                    <span className="text-muted-foreground text-[10px] ml-1">[{data.length}]</span>
+                    <span className="ml-1 text-xs text-muted-foreground">[{data.length}]</span>
                 )}
-            </div>
+            </button>
 
             {isOpen && (
                 <div className="border-l border-border ml-2 pl-2 my-1">
@@ -94,23 +98,24 @@ export function JSONWidget({ data, date, fetchFullDump }: JSONWidgetProps) {
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-full text-muted-foreground gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading raw data...
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground" aria-busy="true">
+                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                Loading raw data…
             </div>
         );
     }
 
     if (!displayData) {
         return (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-                No data available
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center">
+                <span className="text-sm font-medium text-foreground">No data for this day</span>
+                <span className="mt-1 text-xs text-muted-foreground">Nothing was recorded for the selected day</span>
             </div>
         );
     }
 
     return (
-        <ScrollArea className="h-full w-full rounded-md border bg-card p-2">
+        <ScrollArea className="h-full w-full rounded-md border bg-background p-2">
             <div className="space-y-1">
                 {Object.entries(displayData).map(([key, value]) => (
                     <JsonNode key={key} label={key} data={value} />

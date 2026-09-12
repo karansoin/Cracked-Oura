@@ -21,7 +21,8 @@ import {
 import { Line } from 'react-chartjs-2';
 import { format, isValid, parseISO } from 'date-fns';
 import { useIsDark } from '@/components/theme-provider';
-import { STAGE_COLORS, CHART_NEUTRAL, SERIES_PALETTE, withAlpha } from '@/lib/bands';
+import { STAGE_COLORS, SERIES_PALETTE, withAlpha } from '@/lib/bands';
+import { chartTheme } from '@/lib/chart-theme';
 import { formatMinutes } from '@/lib/format';
 import { nearestIndex, seriesStats, type ChartTable } from '@/lib/series-table';
 import { hypnogramBandsPlugin, lowestPointPlugin, typicalRangePlugin, type CrosshairOptions } from '@/lib/chart-plugins';
@@ -424,9 +425,9 @@ export function HypnogramCanvas({
 
     if (epochs.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-full rounded-lg border border-dashed text-muted-foreground p-4 text-center">
-                <span className="text-sm font-medium">No sleep recorded</span>
-                <span className="text-xs opacity-70 mt-1">No sleep stages for this day</span>
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center">
+                <span className="text-sm font-medium text-foreground">No sleep recorded</span>
+                <span className="mt-1 text-xs text-muted-foreground">No sleep stages for this day</span>
             </div>
         );
     }
@@ -439,17 +440,13 @@ export function HypnogramCanvas({
         return <SeriesTable table={table} caption={ariaLabel} />;
     }
 
-    const gridColor = isDark ? withAlpha('#ffffff', 0.08) : withAlpha('#000000', 0.08);
-    const tickColor = isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight;
-    const inkColor = isDark ? '#e5e7eb' : '#1f2937';
-    const crosshairColor = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)';
-    const tooltipStyle = {
-        backgroundColor: isDark ? '#1f2937' : '#ffffff',
-        titleColor: isDark ? '#f3f4f6' : '#111827',
-        bodyColor: isDark ? '#f3f4f6' : '#111827',
-        borderColor: isDark ? '#374151' : '#e5e7eb',
-        borderWidth: 1,
-    } as const;
+    const theme = chartTheme(isDark);
+    const gridColor = theme.grid;
+    const tickColor = theme.tick;
+    const tickFont = theme.tickFont;
+    const inkColor = theme.ink;
+    const crosshairColor = theme.hoverLine;
+    const tooltipStyle = theme.tooltip;
 
     const stageData = {
         datasets: [
@@ -477,7 +474,7 @@ export function HypnogramCanvas({
         ticks: {
             display: showTicks,
             color: tickColor,
-            font: { size: 10 },
+            font: tickFont,
             stepSize: 60,
             maxRotation: 0,
             autoSkip: true,
@@ -521,7 +518,7 @@ export function HypnogramCanvas({
                 offset: true,
                 grid: { color: gridColor, drawTicks: false },
                 border: { display: false },
-                ticks: { color: tickColor, font: { size: 10 } },
+                ticks: { color: tickColor, font: tickFont },
                 afterFit: (scale) => { if (hasOverlay) scale.width = LEFT_AXIS_PX; },
             },
         },
@@ -603,7 +600,7 @@ export function HypnogramCanvas({
                 display: true,
                 grid: { color: gridColor, drawTicks: false },
                 border: { display: false },
-                ticks: { display: showHr, color: tickColor, font: { size: 10 }, maxTicksLimit: 4 },
+                ticks: { display: showHr, color: tickColor, font: tickFont, maxTicksLimit: 4 },
                 afterFit: (scale) => { scale.width = LEFT_AXIS_PX; },
                 suggestedMin: typicalHr && showHr ? Math.floor(typicalHr.low - 2) : undefined,
                 suggestedMax: typicalHr && showHr ? Math.ceil(typicalHr.high + 2) : undefined,
@@ -614,7 +611,7 @@ export function HypnogramCanvas({
                 display: true,
                 grid: { display: false, drawTicks: false },
                 border: { display: false },
-                ticks: { display: showHrv, color: HRV_COLOR, font: { size: 10 }, maxTicksLimit: 4 },
+                ticks: { display: showHrv, color: HRV_COLOR, font: tickFont, maxTicksLimit: 4 },
                 afterFit: (scale) => { scale.width = RIGHT_AXIS_PX; },
                 suggestedMin: typicalHrv && showHrv ? Math.floor(typicalHrv.low - 2) : undefined,
                 suggestedMax: typicalHrv && showHrv ? Math.ceil(typicalHrv.high + 2) : undefined,
@@ -641,7 +638,7 @@ export function HypnogramCanvas({
                 </div>
             )}
             {!compact && (
-                <ul className="flex flex-wrap gap-x-4 gap-y-1 pt-2 text-[11px] text-muted-foreground" aria-hidden="true">
+                <ul className="flex flex-wrap gap-x-4 gap-y-1 pt-2 text-xs text-muted-foreground" aria-hidden="true">
                     {STAGES.map(s => {
                         const mins = totals[s.key];
                         const pct = totalMin > 0 ? Math.round((mins / totalMin) * 100) : 0;

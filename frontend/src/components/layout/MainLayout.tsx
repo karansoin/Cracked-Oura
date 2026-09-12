@@ -118,9 +118,9 @@ export function MainLayout({
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col min-w-0">
                 {/* Header */}
-                <header className="h-16 border-b flex items-center justify-between gap-4 px-6 bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-card/50">
+                <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b bg-card/70 px-6 backdrop-blur supports-[backdrop-filter]:bg-card/70">
                     <div className="flex items-center gap-4 min-w-0">
-                        <h1 className="text-xl font-semibold truncate">{title}</h1>
+                        <h1 className="truncate text-lg font-semibold tracking-tight">{title}</h1>
 
                         {showDayStepper && (
                             <>
@@ -129,11 +129,11 @@ export function MainLayout({
                                 <div className="flex items-center gap-1" role="group" aria-label="Selected day">
                                     <Tooltip>
                                         <TooltipTrigger asChild>
-                                            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => shiftDay(-1)} aria-label="Previous day">
+                                            <Button variant="outline" size="icon" onClick={() => shiftDay(-1)} aria-label="Previous day">
                                                 <ChevronLeft className="h-4 w-4" />
                                             </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent>Previous day <kbd className="ml-1 font-mono">←</kbd> · 7 days <kbd className="font-mono">Shift+←</kbd></TooltipContent>
+                                        <TooltipContent>Previous day <kbd className="ml-1">←</kbd> · 7 days <kbd>Shift+←</kbd></TooltipContent>
                                     </Tooltip>
 
                                     <Popover open={isDatePickerOpen} onOpenChange={onDatePickerOpenChange}>
@@ -143,7 +143,7 @@ export function MainLayout({
                                                     <Button
                                                         variant={"outline"}
                                                         className={cn(
-                                                            "w-[220px] h-9 justify-start text-left font-normal",
+                                                            "w-[200px] justify-start text-left font-normal",
                                                             !selectedDate && "text-muted-foreground"
                                                         )}
                                                         aria-label={`Selected day: ${format(selectedDate, "PPP")}. Open date picker`}
@@ -153,7 +153,7 @@ export function MainLayout({
                                                     </Button>
                                                 </PopoverTrigger>
                                             </TooltipTrigger>
-                                            <TooltipContent>Pick a date <kbd className="ml-1 font-mono">D</kbd></TooltipContent>
+                                            <TooltipContent>Pick a date <kbd className="ml-1">D</kbd></TooltipContent>
                                         </Tooltip>
                                         <PopoverContent className="w-auto p-0" align="start">
                                             <Calendar
@@ -169,26 +169,24 @@ export function MainLayout({
 
                                     <Tooltip>
                                         <TooltipTrigger asChild>
-                                            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => shiftDay(1)} aria-label="Next day">
+                                            <Button variant="outline" size="icon" onClick={() => shiftDay(1)} aria-label="Next day">
                                                 <ChevronRight className="h-4 w-4" />
                                             </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent>Next day <kbd className="ml-1 font-mono">→</kbd> · 7 days <kbd className="font-mono">Shift+→</kbd></TooltipContent>
+                                        <TooltipContent>Next day <kbd className="ml-1">→</kbd> · 7 days <kbd>Shift+→</kbd></TooltipContent>
                                     </Tooltip>
 
                                     <Tooltip>
                                         <TooltipTrigger asChild>
                                             <Button
                                                 variant="outline"
-                                                size="sm"
-                                                className="h-9"
                                                 onClick={onToday}
                                                 disabled={isToday(selectedDate)}
                                             >
                                                 Today
                                             </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent>Jump to today <kbd className="ml-1 font-mono">T</kbd></TooltipContent>
+                                        <TooltipContent>Jump to today <kbd className="ml-1">T</kbd></TooltipContent>
                                     </Tooltip>
                                 </div>
                             </>
@@ -207,10 +205,10 @@ export function MainLayout({
                         <ModeToggle />
                         <Button
                             variant={isChatOpen ? "secondary" : "outline"}
-                            size="sm"
                             onClick={onChatToggle}
+                            aria-pressed={isChatOpen}
                         >
-                            <Sparkles className="h-4 w-4 mr-2" aria-hidden="true" />
+                            <Sparkles className="h-4 w-4" aria-hidden="true" />
                             Ask AI
                         </Button>
                     </div>
@@ -218,7 +216,7 @@ export function MainLayout({
 
                 {/* Dashboard Content */}
                 <div className="flex-1 flex overflow-hidden">
-                    <main id="main-content" className="flex-1 overflow-auto p-6 relative" tabIndex={-1}>
+                    <main id="main-content" className="relative flex-1 overflow-auto p-6 focus-visible:outline-none" tabIndex={-1}>
                         {children}
                     </main>
 

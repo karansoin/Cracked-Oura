@@ -41,17 +41,17 @@ export function ThoughtsDisplay({ thoughts }: { thoughts: AgentStep[] }) {
         .filter((q): q is { step: number; query: string } => !!q.query);
 
     return (
-        <div className="w-full max-w-2xl bg-card border rounded-lg overflow-hidden text-sm mt-3">
+        <div className="mt-3 w-full max-w-2xl overflow-hidden rounded-md border bg-card text-sm">
             {/* SQL Query Preview (Always visible if exists) */}
             {sqlQueries.map(({ step, query }, i) => (
-                <div key={`sql-${step}-${i}`} className="bg-muted/30 p-3 border-b font-mono text-xs">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                        <Database className="h-3 w-3" />
-                        <span className="font-semibold">
-                            SQL Query Executed{sqlQueries.length > 1 ? ` (${i + 1}/${sqlQueries.length})` : ''}
+                <div key={`sql-${step}-${i}`} className="border-b p-3 font-mono text-xs">
+                    <div className="mb-2 flex items-center gap-2 text-muted-foreground">
+                        <Database className="h-3 w-3" aria-hidden="true" />
+                        <span className="font-sans font-medium">
+                            SQL query{sqlQueries.length > 1 ? ` ${i + 1} of ${sqlQueries.length}` : ''}
                         </span>
                     </div>
-                    <div className="text-blue-500 dark:text-blue-400 overflow-x-auto whitespace-pre-wrap bg-background p-2 rounded border">
+                    <div className="overflow-x-auto whitespace-pre-wrap rounded border bg-background p-2 text-[#0072B2] dark:text-[#5AA9E6]">
                         {query}
                     </div>
                 </div>
@@ -63,18 +63,18 @@ export function ThoughtsDisplay({ thoughts }: { thoughts: AgentStep[] }) {
                 const resultStep = thoughts.find(t => t.step === step.step + 1 && t.type === 'tool_result');
                 const code = isRecord(step.params) ? stringify(step.params.code ?? '') : stringify(step.params ?? '');
                 return (
-                    <div key={i} className="bg-muted/30 p-3 border-b font-mono text-xs">
-                        <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                            <Terminal className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
-                            <span className="font-semibold">Python Analysis</span>
+                    <div key={i} className="border-b p-3 font-mono text-xs">
+                        <div className="mb-2 flex items-center gap-2 text-muted-foreground">
+                            <Terminal className="h-3 w-3" aria-hidden="true" />
+                            <span className="font-sans font-medium">Python analysis</span>
                         </div>
                         <div className="space-y-2">
-                            <div className="text-yellow-600 dark:text-yellow-400 overflow-x-auto whitespace-pre-wrap bg-background p-2 rounded border">
+                            <div className="overflow-x-auto whitespace-pre-wrap rounded border bg-background p-2 text-[#9A6400] dark:text-[#F2B84B]">
                                 {code}
                             </div>
                             {resultStep && (
-                                <div className="text-muted-foreground overflow-x-auto whitespace-pre-wrap bg-background/50 p-2 rounded border border-dashed">
-                                    <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground/70 block mb-1">Result</span>
+                                <div className="overflow-x-auto whitespace-pre-wrap rounded border border-dashed bg-background/50 p-2 text-muted-foreground">
+                                    <span className="mb-1 block font-sans text-xs font-semibold uppercase tracking-wider">Result</span>
                                     {typeof resultStep.content === 'string' ? resultStep.content : JSON.stringify(resultStep.content)}
                                 </div>
                             )}
@@ -86,18 +86,20 @@ export function ThoughtsDisplay({ thoughts }: { thoughts: AgentStep[] }) {
             {/* Collapsible Internal Monologue */}
             <div>
                 <button
+                    type="button"
                     onClick={() => setIsOpen(!isOpen)}
-                    className="w-full flex items-center justify-between p-2 px-3 bg-muted/10 hover:bg-muted/30 transition-colors text-xs text-muted-foreground"
+                    aria-expanded={isOpen}
+                    className="flex h-8 w-full items-center justify-between px-3 text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                     <span className="flex items-center gap-2">
-                        <Terminal className="h-3 w-3" />
-                        Internal Monologue & Debug Info
+                        <Terminal className="h-3 w-3" aria-hidden="true" />
+                        Agent steps ({thoughts.length})
                     </span>
-                    {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    {isOpen ? <ChevronDown className="h-3 w-3" aria-hidden="true" /> : <ChevronRight className="h-3 w-3" aria-hidden="true" />}
                 </button>
 
                 {isOpen && (
-                    <div className="p-3 bg-muted/10 space-y-3 border-t">
+                    <div className="space-y-3 border-t p-3">
                         {thoughts.map((step, i) => (
                             <ThoughtStep key={i} step={step} />
                         ))}
@@ -115,13 +117,13 @@ function ThoughtStep({ step }: { step: AgentStep }) {
 
     return (
         <div className="text-xs">
-            <div className="font-semibold text-foreground/80 flex items-center gap-2 mb-1">
-                <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider">
+            <div className="mb-1 flex items-center gap-2 font-medium text-foreground">
+                <span className="rounded bg-secondary px-1.5 py-0.5 text-xs uppercase tracking-wider text-secondary-foreground">
                     Step {step.step}
                 </span>
-                {step.type}
+                <span className="text-muted-foreground">{step.type.replace(/_/g, ' ')}</span>
             </div>
-            <div className="font-mono bg-background p-2 rounded border text-muted-foreground whitespace-pre-wrap overflow-x-auto relative">
+            <div className="relative overflow-x-auto whitespace-pre-wrap rounded border bg-background p-2 font-mono text-muted-foreground">
                 <div className={cn(
                     "overflow-hidden transition-all",
                     !isExpanded && isLong ? "max-h-[150px] mask-linear-fade" : ""
@@ -130,11 +132,12 @@ function ThoughtStep({ step }: { step: AgentStep }) {
                 </div>
                 {isLong && (
                     <button
+                        type="button"
                         onClick={() => setIsExpanded(!isExpanded)}
-                        className="mt-2 text-[10px] uppercase tracking-wider font-bold text-primary hover:underline flex items-center gap-1"
+                        className="mt-2 flex h-6 items-center gap-1 rounded font-sans text-xs font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                        {isExpanded ? "Show Less" : "Show Full Output"}
-                        {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        {isExpanded ? "Show less" : "Show full output"}
+                        {isExpanded ? <ChevronDown className="h-3 w-3" aria-hidden="true" /> : <ChevronRight className="h-3 w-3" aria-hidden="true" />}
                     </button>
                 )}
             </div>

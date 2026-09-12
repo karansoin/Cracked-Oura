@@ -46,11 +46,12 @@ function derivePill(status: ReturnType<typeof useAppStatus>): PillModel {
     return { icon: CheckCircle2, text: 'Local data ready', tone: 'neutral' };
 }
 
+/* Amber is the band palette's "Fair" hue; everything else is a theme token. */
 const TONE_CLASS: Record<PillModel['tone'], string> = {
     neutral: 'text-muted-foreground border-border',
     busy: 'text-foreground border-border',
     ok: 'text-foreground border-border',
-    warn: 'text-foreground border-amber-500/50',
+    warn: 'text-foreground border-[#E69F00]/60',
     error: 'text-destructive border-destructive/50',
 };
 
@@ -60,17 +61,20 @@ export function StatusPill() {
     const { setActivePanel, activePanel } = useDashboard();
     const pill = derivePill(status);
     const Icon = pill.icon;
+    const open = activePanel === 'data';
 
     return (
         <button
             type="button"
-            onClick={() => setActivePanel(activePanel === 'data' ? 'none' : 'data')}
+            onClick={() => setActivePanel(open ? 'none' : 'data')}
             className={cn(
-                'inline-flex items-center gap-2 h-8 max-w-[260px] rounded-full border bg-card px-3 text-xs font-medium transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                TONE_CLASS[pill.tone]
+                'inline-flex h-9 max-w-[260px] items-center gap-2 rounded-full border bg-card px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                TONE_CLASS[pill.tone],
+                open && 'bg-accent text-foreground'
             )}
             title="Open Data & Sync"
             aria-label={`Status: ${pill.text}. Open Data & Sync`}
+            aria-pressed={open}
         >
             <Icon className={cn('h-3.5 w-3.5 shrink-0', pill.spin && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />
             <span className="truncate" aria-live="polite" aria-atomic="true">{pill.text}</span>

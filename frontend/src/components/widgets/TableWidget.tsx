@@ -1,6 +1,7 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatDay, humanizeKey } from "@/lib/format";
 
 type Row = Record<string, unknown>;
 
@@ -41,8 +42,9 @@ export function TableWidget({ data, dataKeys, selectedDate }: TableWidgetProps) 
 
     if (!selectedRow) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
-                <span className="text-sm font-medium">No data for {selectedDate || "selected date"}</span>
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center">
+                <span className="text-sm font-medium text-foreground">No data for {selectedDate ? formatDay(selectedDate) : 'this day'}</span>
+                <span className="mt-1 text-xs text-muted-foreground">Pick another day in the top bar</span>
             </div>
         );
     }
@@ -59,19 +61,9 @@ export function TableWidget({ data, dataKeys, selectedDate }: TableWidgetProps) 
         return path.split('.').reduce<unknown>((acc, part) => (isRecord(acc) ? acc[part] : undefined), obj);
     };
 
-    // Helper to format key to Title Case
-    const formatKey = (key: string) => {
-        // Get last part if dot notation
-        const str = key.split('.').pop() || key;
-        // Replace underscores with spaces
-        const withSpaces = str.replace(/_/g, ' ');
-        // Capitalize words
-        return withSpaces.replace(/\b\w/g, l => l.toUpperCase());
-    };
-
     // Helper to format duration (seconds -> "7h 55m" or "45m")
     const formatDuration = (seconds: number) => {
-        if (!seconds) return '-';
+        if (!seconds) return '—';
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         if (h > 0) return `${h}h ${m}m`;
@@ -80,7 +72,7 @@ export function TableWidget({ data, dataKeys, selectedDate }: TableWidgetProps) 
 
     // Helper to format time (ISO -> HH:mm)
     const formatTime = (isoString: string) => {
-        if (!isoString) return '-';
+        if (!isoString) return '—';
         try {
             return format(parseISO(isoString), 'HH:mm');
         } catch {
@@ -93,7 +85,7 @@ export function TableWidget({ data, dataKeys, selectedDate }: TableWidgetProps) 
         const k = key.toLowerCase();
         const field = k.split('.').pop() || k;
 
-        if (val === null || val === undefined) return '-';
+        if (val === null || val === undefined) return '—';
 
         // 1. Time / Dates
         if (typeof val === 'string' && (k.includes('start') || k.includes('end') || k.includes('timestamp') || k.includes('bedtime') || k.includes('wakeup'))) {
@@ -127,40 +119,38 @@ export function TableWidget({ data, dataKeys, selectedDate }: TableWidgetProps) 
     };
 
     return (
-        <div className="w-full h-full flex flex-col">
-            {/* Header with Date */}
-            <div className="px-1 pb-3 pt-1 border-b border-white/10 mb-2 flex items-center justify-between">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    {selectedDate ? format(parseISO(selectedDate), 'MMMM do, yyyy') : 'Latest'}
-                </span>
-
+        <div className="flex h-full w-full flex-col">
+            {/* Day the values belong to */}
+            <div className="mb-1 flex items-center justify-between border-b pb-2 text-xs text-muted-foreground">
+                <span>{selectedDate ? formatDay(selectedDate) : 'Latest'}</span>
             </div>
 
-            <ScrollArea className="flex-1 -mr-3 pr-3">
-                <div className="flex flex-col gap-0.5">
+            <ScrollArea className="-mr-3 flex-1 pr-3">
+                <dl className="flex flex-col">
                     {displayKeys.map(key => {
                         const rawVal = getValue(selectedRow, key);
                         const displayVal = formatValue(rawVal, key);
-                        const label = formatKey(key);
+                        const label = humanizeKey(key);
 
                         return (
                             <div
                                 key={key}
-                                className="flex items-center justify-between py-2 px-2 hover:bg-white/5 rounded transition-colors group"
+                                className="group flex items-center justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/60"
                             >
-                                <span className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
+                                <dt className="truncate text-sm text-muted-foreground transition-colors group-hover:text-foreground">
                                     {label}
-                                </span>
-                                <span className={cn(
-                                    "text-sm font-semibold",
-                                    typeof rawVal === 'number' && "tabular-nums"
+                                </dt>
+                                <dd className={cn(
+                                    "shrink-0 text-sm font-medium",
+                                    typeof rawVal === 'number' && "tabular-nums",
+                                    displayVal === '—' && "text-muted-foreground"
                                 )}>
                                     {displayVal}
-                                </span>
+                                </dd>
                             </div>
                         );
                     })}
-                </div>
+                </dl>
             </ScrollArea>
         </div>
     );

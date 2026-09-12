@@ -165,8 +165,8 @@ export function DashboardGrid({
                         aria-pressed={overlay[key]}
                         onClick={() => toggleOverlay(widget.id, key)}
                         className={cn(
-                            "h-6 rounded border px-2 text-[11px] font-medium transition-colors",
-                            overlay[key] ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+                            "h-7 rounded-md border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            overlay[key] ? "border-transparent bg-secondary text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                         )}
                     >
                         {key.toUpperCase()}
@@ -201,7 +201,7 @@ export function DashboardGrid({
                     </>
                 )}
             >
-                <div className={cn("h-full", !compact && "pt-2")}>
+                <div className="h-full">
                     <ErrorBoundary resetKeys={[dateString, widget.type, widget.config.dataKey]}>
                         <ChartTableProvider value={chartTableValue}>
                             <WidgetRegistry
@@ -220,7 +220,7 @@ export function DashboardGrid({
     };
 
     return (
-        <div className={cn("w-full", isEditing && "bg-secondary/10 rounded-xl border border-dashed border-secondary/50")}>
+        <div className={cn("w-full", isEditing && "-m-4 w-[calc(100%+2rem)] rounded-lg border border-dashed border-foreground/20 bg-secondary/20")}>
             {isEditing ? (
                 <GridLayout
                     className="layout"
@@ -243,7 +243,7 @@ export function DashboardGrid({
                 </GridLayout>
             ) : (
                 <div
-                    className="grid grid-cols-12 gap-4 p-4"
+                    className="grid grid-cols-12 gap-4"
                     style={{
                         gridAutoRows: '60px'
                     }}

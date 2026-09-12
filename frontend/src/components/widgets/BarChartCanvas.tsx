@@ -13,7 +13,9 @@ import { Bar } from 'react-chartjs-2';
 import { useIsDark } from '@/components/theme-provider';
 import { useAppStatus } from '@/contexts/AppStatusContext';
 import { useChartTable } from '@/contexts/ChartTableContext';
-import { formatMetricValue, kindForKey } from '@/lib/metrics';
+import { formatMetricValue, formatMetricWithUnit, kindForKey } from '@/lib/metrics';
+import { chartTheme } from '@/lib/chart-theme';
+import { formatDay, humanizeKey } from '@/lib/format';
 import { formatNumber, seriesStats, type ChartTable } from '@/lib/series-table';
 import { SeriesTable } from './SeriesTable';
 
@@ -41,20 +43,21 @@ const toNumber = (v: unknown): number | null => (typeof v === 'number' && Number
 
 export function BarChartCanvas({ data, dataKey, categoryKey = "name", color = "#0072B2", ariaLabel, barColor }: BarChartCanvasProps) {
     const isDark = useIsDark();
+    const theme = chartTheme(isDark);
     const { units } = useAppStatus();
 
     const values = useMemo(() => data.map(d => toNumber(d[dataKey])), [data, dataKey]);
-    const seriesName = dataKey.split('.').pop()?.replace(/_/g, ' ') ?? dataKey;
+    const seriesName = humanizeKey(dataKey);
+    const kind = kindForKey(dataKey);
     const stats = seriesStats(values);
 
     const table = useMemo<ChartTable | null>(() => {
         if (data.length === 0) return null;
-        const kind = kindForKey(dataKey);
         return {
             columns: [categoryKey === 'date' ? 'Date' : 'Category', seriesName],
             rows: data.map((d, i) => [String(d[categoryKey] ?? ''), values[i] === null ? '' : formatMetricValue(values[i], kind, units)]),
         };
-    }, [data, dataKey, categoryKey, seriesName, values, units]);
+    }, [data, kind, categoryKey, seriesName, values, units]);
     const viewAsTable = useChartTable(table);
 
     const summary = ariaLabel ?? (stats
@@ -67,9 +70,9 @@ export function BarChartCanvas({ data, dataKey, categoryKey = "name", color = "#
 
     if (!stats) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center" role="img" aria-label={summary}>
-                <span className="text-sm font-medium">No values in this range</span>
-                <span className="text-xs opacity-70 mt-1">Days synced from the ring have no scores yet</span>
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center" role="img" aria-label={summary}>
+                <span className="text-sm font-medium text-foreground">No values in this range</span>
+                <span className="mt-1 text-xs text-muted-foreground">Days synced from the ring have no scores yet</span>
             </div>
         );
     }
@@ -78,7 +81,7 @@ export function BarChartCanvas({ data, dataKey, categoryKey = "name", color = "#
         labels: data.map(d => String(d[categoryKey] ?? '')),
         datasets: [
             {
-                label: dataKey.split('.').pop()?.replace(/_/g, ' ') ?? dataKey,
+                label: seriesName,
                 data: values,
                 backgroundColor: barColor ? values.map(barColor) : color,
                 borderRadius: 4, // Rounded corners like Recharts radius={[4, 4, 0, 0]}
@@ -99,11 +102,18 @@ export function BarChartCanvas({ data, dataKey, categoryKey = "name", color = "#
             },
             tooltip: {
                 enabled: true,
-                backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                titleColor: isDark ? '#f3f4f6' : '#111827',
-                bodyColor: isDark ? '#f3f4f6' : '#111827',
-                borderColor: isDark ? '#374151' : '#e5e7eb',
-                borderWidth: 1,
+                ...theme.tooltip,
+                displayColors: false,
+                callbacks: {
+                    title: (items) => {
+                        const label = items[0]?.label ?? '';
+                        return /^\d{4}-\d{2}-\d{2}$/.test(label) ? formatDay(label) : humanizeKey(label);
+                    },
+                    label: (context) => {
+                        const y = context.parsed.y;
+                        return `${seriesName}: ${y === null || y === undefined ? '—' : formatMetricWithUnit(y, kind, units)}`;
+                    },
+                },
             }
         },
         scales: {
@@ -111,11 +121,15 @@ export function BarChartCanvas({ data, dataKey, categoryKey = "name", color = "#
                 grid: {
                     display: false,
                 },
+                border: {
+                    display: false
+                },
                 ticks: {
-                    color: isDark ? '#9ca3af' : '#6b7280',
-                    font: {
-                        size: 10
-                    },
+                    color: theme.tick,
+                    font: theme.tickFont,
+                    maxRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: 12,
                     callback: function (val) {
                         const label = this.getLabelForValue(val as number);
                         // Check if it's a date YYYY-MM-DD
@@ -125,27 +139,23 @@ export function BarChartCanvas({ data, dataKey, categoryKey = "name", color = "#
                             const date = new Date(y, m - 1, d);
                             return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                         }
-                        return label;
+                        return typeof label === 'string' ? humanizeKey(label) : label;
                     }
                 },
-                border: {
-                    display: false
-                }
             },
             y: {
                 position: 'left',
                 grid: {
-                    color: isDark ? '#374151' : '#e5e7eb',
+                    color: theme.grid,
                     drawTicks: false,
                 },
                 border: {
                     display: false
                 },
                 ticks: {
-                    color: isDark ? '#9ca3af' : '#6b7280',
-                    font: {
-                        size: 10
-                    }
+                    color: theme.tick,
+                    font: theme.tickFont,
+                    maxTicksLimit: 6,
                 }
             }
         }

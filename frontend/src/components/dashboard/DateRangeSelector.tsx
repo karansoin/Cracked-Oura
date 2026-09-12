@@ -207,36 +207,54 @@ export function DateRangeSelector({ widget, onUpdate, selectedDate = new Date(),
 
     const effectiveIsLocked = isLocked || isIntradayKey(widget.config.dataKey || widget.config.dataKeys?.[0] || '');
 
-    const getLabel = () => {
-        if (effectiveIsLocked) return format(selectedDate, 'd.M.yyyy');
-        const { type, value, unit, anchor } = widget.config.dateRange || {};
-        if (type === 'selected_day') return 'Selection';
-        if (type === 'relative') {
-            const anchorLabel = anchor === 'selected_date' ? 'selection' : 'today';
-            let unitStr = 'd';
-            if (unit === 'hours') unitStr = 'h';
-            if (unit === 'minutes') unitStr = 'm';
-            if (unit === 'years') unitStr = 'y';
-            return `${value}${unitStr} - ${anchorLabel}`;
+    const unitWord = (unit: string | undefined, value: number | undefined): string => {
+        const plural = (value ?? 0) !== 1;
+        switch (unit) {
+            case 'hours': return plural ? 'hours' : 'hour';
+            case 'minutes': return plural ? 'minutes' : 'minute';
+            case 'weeks': return plural ? 'weeks' : 'week';
+            case 'months': return plural ? 'months' : 'month';
+            case 'years': return plural ? 'years' : 'year';
+            default: return plural ? 'days' : 'day';
         }
-        if (type === 'last_30') return '30d - today';
-        if (type === 'last_90') return '90d - today';
-        if (type === 'all') return 'All Time';
-        if (type === 'custom') return 'Custom';
-        return '7d - today';
     };
+
+    /** Short pill label; the popover spells the range out in full. */
+    const getLabel = () => {
+        if (effectiveIsLocked) return format(selectedDate, 'd MMM yyyy');
+        const { type, value, unit, anchor, startDate: from, endDate: to } = widget.config.dateRange || {};
+        if (type === 'selected_day') return format(selectedDate, 'd MMM yyyy');
+        if (type === 'relative') {
+            const span = `${value} ${unitWord(unit, value)}`;
+            return anchor === 'selected_date' ? `${span} to ${format(selectedDate, 'd MMM')}` : `Last ${span}`;
+        }
+        if (type === 'last_30') return 'Last 30 days';
+        if (type === 'last_90') return 'Last 90 days';
+        if (type === 'all') return 'All time';
+        if (type === 'custom') {
+            const fromDate = from ? parseISO(from) : undefined;
+            const toDate = to ? parseISO(to) : undefined;
+            if (fromDate && isValid(fromDate)) {
+                return `${format(fromDate, 'd MMM')} – ${toDate && isValid(toDate) ? format(toDate, 'd MMM') : 'today'}`;
+            }
+            return 'Custom range';
+        }
+        return 'Last 7 days';
+    };
+
+    const triggerClass = "h-7 min-w-0 max-w-[180px] gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground relative z-[70]";
 
     if (effectiveIsLocked) {
         return (
             <Popover>
                 <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1 shadow-sm relative z-[70]">
-                        <Lock className="h-3 w-3" />
-                        <span className="truncate max-w-[120px]">{format(selectedDate, 'd.M.yyyy')}</span>
+                    <Button variant="outline" size="sm" className={triggerClass} aria-label={`Locked to ${format(selectedDate, 'd MMM yyyy')}`}>
+                        <Lock className="h-3 w-3" aria-hidden="true" />
+                        <span className="truncate">{format(selectedDate, 'd MMM yyyy')}</span>
                     </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-2 text-xs text-muted-foreground" align="end">
-                    This widget is locked to the daily view.
+                <PopoverContent className="w-auto p-2.5 text-xs text-muted-foreground" align="end">
+                    This widget always shows the selected day.
                 </PopoverContent>
             </Popover>
         );
@@ -245,82 +263,84 @@ export function DateRangeSelector({ widget, onUpdate, selectedDate = new Date(),
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
             <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1 shadow-sm relative z-[70]">
-                    <CalendarIcon className="h-3 w-3" />
-                    <span className="truncate max-w-[120px]">{getLabel()}</span>
+                <Button variant="outline" size="sm" className={triggerClass} aria-label={`Date range: ${getLabel()}`}>
+                    <CalendarIcon className="h-3 w-3" aria-hidden="true" />
+                    <span className="truncate">{getLabel()}</span>
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="end">
                 <div className="flex h-[380px]">
                     {/* Quick Ranges Column */}
-                    <div className="w-[180px] border-r p-2 flex flex-col gap-1 overflow-y-auto">
-                        <div className="text-[10px] font-semibold text-muted-foreground px-2 py-1 uppercase tracking-wider">
-                            Relative to Selection
+                    <div className="flex w-[190px] flex-col gap-0.5 overflow-y-auto border-r p-2">
+                        <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Relative to selected day
                         </div>
-                        <Button variant="ghost" size="sm" className="justify-start text-xs h-8 font-normal"
+                        <Button variant="ghost" size="sm" className="h-8 justify-start font-normal"
                             onClick={() => handlePreset('selected_day')}>
-                            Selection
+                            Selected day only
                         </Button>
-                        <Button variant="ghost" size="sm" className="justify-start text-xs h-8 font-normal"
+                        <Button variant="ghost" size="sm" className="h-8 justify-start font-normal"
                             onClick={() => handlePreset('relative', 7, 'days', 'selected_date')}>
-                            7d - selection
+                            7 days to selected day
                         </Button>
-                        <Button variant="ghost" size="sm" className="justify-start text-xs h-8 font-normal"
+                        <Button variant="ghost" size="sm" className="h-8 justify-start font-normal"
                             onClick={() => handlePreset('relative', 30, 'days', 'selected_date')}>
-                            30d - selection
+                            30 days to selected day
                         </Button>
-                        <Button variant="ghost" size="sm" className="justify-start text-xs h-8 font-normal"
+                        <Button variant="ghost" size="sm" className="h-8 justify-start font-normal"
                             onClick={() => handlePreset('relative', 90, 'days', 'selected_date')}>
-                            90d - selection
+                            90 days to selected day
                         </Button>
 
-                        <div className="text-[10px] font-semibold text-muted-foreground px-2 py-1 mt-2 uppercase tracking-wider">
-                            Relative to Today
+                        <div className="mt-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Relative to today
                         </div>
-                        <Button variant="ghost" size="sm" className="justify-start text-xs h-8 font-normal"
+                        <Button variant="ghost" size="sm" className="h-8 justify-start font-normal"
                             onClick={() => handlePreset('last_30')}>
-                            30d - today
+                            30 days to today
                         </Button>
-                        <Button variant="ghost" size="sm" className="justify-start text-xs h-8 font-normal"
+                        <Button variant="ghost" size="sm" className="h-8 justify-start font-normal"
                             onClick={() => handlePreset('last_90')}>
-                            90d - today
+                            90 days to today
                         </Button>
-                        <Button variant="ghost" size="sm" className="justify-start text-xs h-8 font-normal"
+                        <Button variant="ghost" size="sm" className="h-8 justify-start font-normal"
                             onClick={() => handlePreset('all')}>
-                            All Time
+                            All time
                         </Button>
                     </div>
 
                     {/* Custom Range Column */}
-                    <div className="flex flex-col w-[300px]">
-                        <div className="p-3 border-b">
-                            <div className="text-sm font-medium mb-2">Range</div>
-                            <div className="flex gap-2 items-center">
-                                <div className="flex-1">
-                                    <label className="text-[10px] text-muted-foreground">From</label>
+                    <div className="flex w-[300px] flex-col">
+                        <div className="border-b p-3">
+                            <div className="mb-2 text-sm font-medium">Custom range</div>
+                            <div className="flex items-end gap-2">
+                                <div className="flex-1 space-y-1">
+                                    <label htmlFor="range-from" className="text-xs text-muted-foreground">From</label>
                                     <Input
+                                        id="range-from"
                                         className="h-8 text-xs"
                                         value={inputFrom}
                                         onChange={(e) => setInputFrom(e.target.value)}
-                                        placeholder="e.g. 30d, today"
+                                        placeholder="e.g. 30d, 2024-04-01"
                                     />
                                 </div>
-                                <ArrowRight className="h-3 w-3 text-muted-foreground mt-4" />
-                                <div className="flex-1">
-                                    <label className="text-[10px] text-muted-foreground">To</label>
+                                <ArrowRight className="mb-2.5 h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                <div className="flex-1 space-y-1">
+                                    <label htmlFor="range-to" className="text-xs text-muted-foreground">To</label>
                                     <Input
+                                        id="range-to"
                                         className="h-8 text-xs"
                                         value={inputTo}
                                         onChange={(e) => setInputTo(e.target.value)}
-                                        placeholder="e.g. today"
+                                        placeholder="e.g. today, selection"
                                     />
                                 </div>
                             </div>
-                            <Button size="sm" className="w-full mt-3 h-7 text-xs" onClick={handleApply}>
+                            <Button size="sm" className="mt-3 w-full" onClick={handleApply}>
                                 Apply
                             </Button>
                         </div>
-                        <div className="p-2 flex-1 overflow-auto">
+                        <div className="flex-1 overflow-auto p-2">
                             <Calendar
                                 mode="range"
                                 selected={tempRange}
@@ -331,7 +351,7 @@ export function DateRangeSelector({ widget, onUpdate, selectedDate = new Date(),
                                     else setInputTo("");
                                 }}
                                 initialFocus
-                                className="rounded-md border shadow-none w-full"
+                                className="w-full rounded-md border-0 shadow-none"
                             />
                         </div>
                     </div>

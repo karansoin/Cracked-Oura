@@ -18,8 +18,8 @@ export function TrendsRangeSelector({ value, onChange, className }: TrendsRangeS
                     aria-pressed={value === r.id}
                     onClick={() => onChange(r.id)}
                     className={cn(
-                        "h-full rounded-sm px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        value === r.id ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+                        "h-full rounded-[4px] px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        value === r.id ? "bg-secondary text-foreground shadow-sm" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                     )}
                 >
                     {r.label}

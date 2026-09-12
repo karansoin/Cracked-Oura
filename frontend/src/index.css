@@ -3,8 +3,12 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * Surfaces are layered in both themes: background < card < popover.
+   * Muted text keeps >= 4.5:1 on background, card and muted surfaces.
+   */
   :root {
-    --background: 0 0% 100%;
+    --background: 240 5% 97.5%;
     --foreground: 240 10% 3.9%;
     --card: 0 0% 100%;
     --card-foreground: 240 10% 3.9%;
@@ -12,16 +16,16 @@
     --popover-foreground: 240 10% 3.9%;
     --primary: 240 5.9% 10%;
     --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
+    --secondary: 240 4.8% 94%;
     --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
+    --muted: 240 4.8% 94%;
+    --muted-foreground: 240 4% 40%;
+    --accent: 240 4.8% 94%;
     --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 46%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
+    --border: 240 6% 87%;
+    --input: 240 6% 84%;
     --ring: 240 5.9% 10%;
     --radius: 0.5rem;
   }
@@ -29,22 +33,22 @@
   .dark {
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
+    --card: 240 6% 7%;
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
+    --popover: 240 6% 10%;
     --popover-foreground: 0 0% 98%;
     --primary: 0 0% 98%;
     --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
+    --secondary: 240 4% 16%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 66%;
+    --accent: 240 4% 16%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 62.8% 36%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
+    --border: 240 4% 18%;
+    --input: 240 4% 22%;
     --ring: 240 4.9% 83.9%;
   }
 }
@@ -55,7 +59,22 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    /* Numbers line up in tables, KPIs and axis ticks everywhere. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Visible keyboard focus for anything that does not style its own ring. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  kbd {
+    @apply inline-flex items-center justify-center rounded border bg-muted px-1 font-mono text-xs text-muted-foreground;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    line-height: 1;
   }
 
   /* Disable React Grid Layout animations for instant resize */
@@ -70,6 +89,14 @@
     /* Try to prevent 3D transform interpolation */
   }
 
+}
+
+@layer utilities {
+  /* Fades the bottom of a clipped block (long agent-trace output). */
+  .mask-linear-fade {
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  }
 }
 
 /* Custom Resize Handle Styles - High Visibility Update (Outside Layer for Specificity) */

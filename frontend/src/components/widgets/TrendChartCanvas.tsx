@@ -16,9 +16,11 @@ import { Line } from 'react-chartjs-2';
 import { useIsDark } from '@/components/theme-provider';
 import { useAppStatus } from '@/contexts/AppStatusContext';
 import { useChartTable } from '@/contexts/ChartTableContext';
-import { CHART_NEUTRAL, SERIES_PALETTE, withAlpha } from '@/lib/bands';
+import { SERIES_PALETTE, withAlpha } from '@/lib/bands';
+import { chartTheme } from '@/lib/chart-theme';
+import { formatDay, humanizeKey, humanizePath } from '@/lib/format';
 import { hoverLinePlugin, scoreBandsPlugin } from '@/lib/chart-plugins';
-import { formatMetricValue, kindForKey } from '@/lib/metrics';
+import { formatMetricValue, formatMetricWithUnit, kindForKey } from '@/lib/metrics';
 import { formatNumber, seriesStats, type ChartTable } from '@/lib/series-table';
 import { SeriesTable } from './SeriesTable';
 
@@ -57,8 +59,21 @@ const formatRowDate = (label: string): string => {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+/** Tooltip title: "Mon 29 Apr 2024" or "Mon 29 Apr 2024, 07:35". */
+const formatPointLabel = (label: string): string => {
+    if (!label) return '';
+    if (label.includes('T')) {
+        const d = new Date(label);
+        if (Number.isNaN(d.getTime())) return label;
+        const pad = (n: number) => n.toString().padStart(2, '0');
+        return `${formatDay(label)}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    return formatDay(label);
+};
+
 export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPoints = false, ariaLabel }: TrendChartCanvasProps) {
     const isDark = useIsDark();
+    const theme = chartTheme(isDark);
     const { units } = useAppStatus();
 
     // Determine keys to plot
@@ -73,11 +88,12 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
     // Okabe-Ito palette for multi-series; the widget accent leads.
     const colors = [color, ...SERIES_PALETTE.filter(c => c.toLowerCase() !== color.toLowerCase())];
 
-    // Series labels: the last path segment, unless that would be ambiguous
-    // (e.g. sleep.score / readiness.score / activity.score -> "sleep score", ...).
+    // Series labels: the humanised last path segment, unless that would be ambiguous
+    // (e.g. sleep.score / readiness.score / activity.score -> "Sleep score", ...).
     const lastSegments = keys.map(k => k.split('.').pop() ?? k);
     const ambiguous = new Set(lastSegments).size !== lastSegments.length;
-    const seriesLabel = (key: string) => (ambiguous ? key.replace(/\./g, ' ') : (key.split('.').pop() ?? key)).replace(/_/g, ' ') || title;
+    const seriesLabel = (key: string) => (ambiguous ? humanizePath(key) : humanizeKey(key)) || title;
+    const kinds = keys.map(kindForKey);
 
     // Plotted values per series (null-safe), for the table, the summary and the empty check.
     const series = useMemo(
@@ -88,7 +104,6 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
 
     const table = useMemo<ChartTable | null>(() => {
         if (keys.length === 0 || data.length === 0) return null;
-        const kinds = keys.map(kindForKey);
         return {
             columns: ['Date', ...keys.map(seriesLabel)],
             rows: data.map((row, i) => [
@@ -96,7 +111,7 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
                 ...series.map((values, s) => (values[i] === null ? '' : formatMetricValue(values[i], kinds[s], units))),
             ]),
         };
-        // seriesLabel is a pure function of `keys`
+        // seriesLabel / kinds are pure functions of `keys`
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [keys, data, series, units]);
     const viewAsTable = useChartTable(table);
@@ -113,9 +128,9 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
 
     if (!hasValues) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center" role="img" aria-label={`${title}: no values in this range`}>
-                <span className="text-sm font-medium">No values in this range</span>
-                <span className="text-xs opacity-70 mt-1">Days synced from the ring have no scores yet</span>
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center" role="img" aria-label={`${title}: no values in this range`}>
+                <span className="text-sm font-medium text-foreground">No values in this range</span>
+                <span className="mt-1 text-xs text-muted-foreground">Days synced from the ring have no scores yet</span>
             </div>
         );
     }
@@ -160,58 +175,19 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
         },
         plugins: {
             scoreBands: { enabled: isScoreChart, isDark },
-            hoverLine: { color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' },
-            legend: {
-                display: keys.length > 1,
-                position: 'top',
-                align: 'end',
-                labels: {
-                    boxWidth: 8,
-                    boxHeight: 8,
-                    usePointStyle: true,
-                    color: isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight,
-                    font: { size: 10 },
-                },
-            },
+            hoverLine: { color: theme.hoverLine },
+            legend: { ...theme.legend, display: keys.length > 1 },
             tooltip: {
                 enabled: true,
-                backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                titleColor: isDark ? '#f3f4f6' : '#111827',
-                bodyColor: isDark ? '#f3f4f6' : '#111827',
-                borderColor: isDark ? '#374151' : '#e5e7eb',
-                borderWidth: 1,
-                padding: 10,
-                displayColors: true,
+                ...theme.tooltip,
+                displayColors: keys.length > 1,
                 callbacks: {
-                    title: (tooltipItems) => {
-                        const label = tooltipItems[0].label;
-                        if (!label) return '';
-
-                        // Intraday
-                        if (label.includes('T')) {
-                            const date = new Date(label);
-                            const day = date.getDate().toString().padStart(2, '0');
-                            const month = (date.getMonth() + 1).toString().padStart(2, '0');
-                            const year = date.getFullYear();
-                            const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                            return `${day}.${month}.${year} ${time}`;
-                        }
-
-                        // Daily
-                        const [y, m, d] = label.split('-').map(Number);
-                        const day = d.toString().padStart(2, '0');
-                        const month = m.toString().padStart(2, '0');
-                        return `${day}.${month}.${y}`;
-                    },
+                    title: (tooltipItems) => formatPointLabel(tooltipItems[0]?.label ?? ''),
                     label: (context) => {
-                        let label = context.dataset.label || '';
-                        if (label) {
-                            label += ': ';
-                        }
-                        if (context.parsed.y !== null) {
-                            label += context.parsed.y;
-                        }
-                        return label;
+                        const label = context.dataset.label || '';
+                        const y = context.parsed.y;
+                        const value = y === null || y === undefined ? '—' : formatMetricWithUnit(y, kinds[context.datasetIndex] ?? 'number', units);
+                        return label ? `${label}: ${value}` : value;
                     }
                 }
             }
@@ -223,10 +199,8 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
                     display: false
                 },
                 ticks: {
-                    color: isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight,
-                    font: {
-                        size: 10
-                    },
+                    color: theme.tick,
+                    font: theme.tickFont,
                     maxRotation: 0,
                     autoSkip: true,
                     maxTicksLimit: 12, // More frequent labels
@@ -272,17 +246,15 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
                 min: isScoreChart ? 0 : undefined,
                 max: isScoreChart ? 100 : undefined,
                 grid: {
-                    color: isDark ? withAlpha('#ffffff', 0.08) : withAlpha('#000000', 0.08),
+                    color: theme.grid,
                     drawTicks: false,
                 },
                 border: {
                     display: false
                 },
                 ticks: {
-                    color: isDark ? CHART_NEUTRAL.tickDark : CHART_NEUTRAL.tickLight,
-                    font: {
-                        size: 10
-                    },
+                    color: theme.tick,
+                    font: theme.tickFont,
                     maxTicksLimit: 6,
                 }
             }

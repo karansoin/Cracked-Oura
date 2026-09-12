@@ -4,8 +4,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { X } from "lucide-react";
+import { SlidersHorizontal, X } from "lucide-react";
 import { cn, isIntradayKey } from "@/lib/utils";
+import { SidePanel, PanelSectionHeading } from "@/components/layout/SidePanel";
 import { DataFieldSelector } from "./DataFieldSelector";
 import type { WidgetInstance } from "@/types";
 
@@ -20,6 +21,17 @@ interface WidgetEditorPanelProps {
 const WIDGET_TYPES = ["score", "trend", "metric", "bar", "radar", "json", "table", "hypnogram", "contributors"] as const;
 type WidgetType = typeof WIDGET_TYPES[number];
 const isWidgetType = (v: string): v is WidgetType => (WIDGET_TYPES as readonly string[]).includes(v);
+
+/** Accent swatches: Okabe-Ito hues shared with the charts. */
+const ACCENTS = [
+    { color: '#0072B2', label: 'Blue' },
+    { color: '#009E73', label: 'Green' },
+    { color: '#E69F00', label: 'Amber' },
+    { color: '#D55E00', label: 'Vermillion' },
+    { color: '#CC79A7', label: 'Purple' },
+    { color: '#56B4E9', label: 'Sky' },
+    { color: '#8AB4F8', label: 'Light blue' },
+] as const;
 
 export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetEditorPanelProps) {
     const [title, setTitle] = useState("");
@@ -58,7 +70,7 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
             }
         } else {
             // Defaults for new widget
-            setTitle("New Widget");
+            setTitle("New widget");
             setType("score");
             setDataKey("sleep.score");
             setDataKeys(["sleep.score"]);
@@ -102,7 +114,7 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
         { value: "activity", label: "activity (json)", types: ["json"] },
     ];
 
-
+    const multiSelect = type === 'table' || type === 'trend' || type === 'bar' || type === 'radar';
 
     const handleSave = () => {
         onSave({
@@ -124,15 +136,24 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
     };
 
     return (
-        <div className="w-[400px] border-l bg-card flex flex-col h-full">
-            <div className="p-6 border-b flex items-center justify-between">
-                <h2 className="text-lg font-semibold">{widget ? "Edit Widget" : "Add Widget"}</h2>
-                <Button variant="ghost" size="icon" onClick={onClose}>
-                    <X className="h-4 w-4" />
-                </Button>
-            </div>
-
-            <div className="flex-1 p-6 space-y-6 overflow-y-auto">
+        <SidePanel
+            title={widget ? "Edit widget" : "Add widget"}
+            subtitle="Changes preview live on the dashboard"
+            icon={<SlidersHorizontal className="h-4 w-4" />}
+            onClose={onClose}
+            footer={(
+                <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1" onClick={onClose}>
+                        Cancel
+                    </Button>
+                    <Button className="flex-1" onClick={handleSave}>
+                        Done
+                    </Button>
+                </div>
+            )}
+        >
+            <section className="space-y-3" aria-labelledby="editor-basics-heading">
+                <PanelSectionHeading id="editor-basics-heading">Widget</PanelSectionHeading>
                 <div className="space-y-2">
                     <Label htmlFor="title">Title</Label>
                     <Input
@@ -142,12 +163,12 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
                             setTitle(e.target.value);
                             updateWidget({ title: e.target.value });
                         }}
-                        placeholder="Widget Title"
+                        placeholder="Widget title"
                     />
                 </div>
 
                 <div className="space-y-2">
-                    <Label htmlFor="type">Widget Type</Label>
+                    <Label htmlFor="type">Type</Label>
                     <Select
                         value={type}
                         onValueChange={(value) => {
@@ -169,153 +190,155 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
                             });
                         }}
                     >
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select type" />
+                        <SelectTrigger id="type">
+                            <SelectValue placeholder="Choose a type" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="score">Score Gauge</SelectItem>
-                            <SelectItem value="metric">Metric Number</SelectItem>
-                            <SelectItem value="trend">Trend Chart</SelectItem>
-                            <SelectItem value="bar">Bar Chart</SelectItem>
+                            <SelectItem value="score">Score gauge</SelectItem>
+                            <SelectItem value="metric">Number</SelectItem>
+                            <SelectItem value="trend">Trend chart</SelectItem>
+                            <SelectItem value="bar">Bar chart</SelectItem>
                             <SelectItem value="hypnogram">Hypnogram (sleep stages)</SelectItem>
-                            <SelectItem value="contributors">Contributors (bars)</SelectItem>
-                            <SelectItem value="radar">Radar Chart</SelectItem>
+                            <SelectItem value="contributors">Contributors</SelectItem>
+                            <SelectItem value="radar">Radar chart</SelectItem>
                             <SelectItem value="table">Table</SelectItem>
-                            <SelectItem value="json">JSON Viewer</SelectItem>
+                            <SelectItem value="json">Raw data (JSON)</SelectItem>
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                        This determines how the data is visualized.
+                        How the data is visualised. Changing the type picks a matching field.
                     </p>
                 </div>
+            </section>
 
+            <section className="space-y-3" aria-labelledby="editor-data-heading">
+                <PanelSectionHeading id="editor-data-heading">Data</PanelSectionHeading>
                 <div className="space-y-2">
-                    <Label>Data Source</Label>
-                    <div className="space-y-2">
-                        {/* Show selected keys for multi-select */}
-                        {(type === 'table' || type === 'trend' || type === 'bar' || type === 'radar') && (
-                            <div className="flex flex-wrap gap-1 mb-2">
-                                {dataKeys.map(key => (
-                                    <div key={key} className="bg-secondary text-secondary-foreground px-2 py-1 rounded-md text-xs flex items-center gap-1">
-                                        <span>{key}</span>
-                                        <button
-                                            onClick={() => {
-                                                const newKeys = dataKeys.filter(k => k !== key);
-                                                setDataKeys(newKeys);
-                                                // If no keys left, clear primary dataKey too
-                                                const newDataKey = newKeys.length > 0 ? newKeys[newKeys.length - 1] : "";
-                                                if (newKeys.length === 0) setDataKey("");
+                    {/* Show selected keys for multi-select */}
+                    {multiSelect && dataKeys.length > 0 && (
+                        <ul className="flex flex-wrap gap-1.5" aria-label="Selected fields">
+                            {dataKeys.map(key => (
+                                <li key={key} className="flex h-7 items-center gap-1 rounded-md border bg-background pl-2 pr-1 font-mono text-xs">
+                                    <span>{key}</span>
+                                    <button
+                                        type="button"
+                                        aria-label={`Remove ${key}`}
+                                        onClick={() => {
+                                            const newKeys = dataKeys.filter(k => k !== key);
+                                            setDataKeys(newKeys);
+                                            // If no keys left, clear primary dataKey too
+                                            const newDataKey = newKeys.length > 0 ? newKeys[newKeys.length - 1] : "";
+                                            if (newKeys.length === 0) setDataKey("");
 
-                                                updateWidget({
-                                                    config: { ...widget?.config, dataKeys: newKeys, dataKey: newDataKey, color }
-                                                });
-                                            }}
-                                            className="hover:text-destructive"
-                                        >
-                                            <X className="h-3 w-3" />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                                            updateWidget({
+                                                config: { ...widget?.config, dataKeys: newKeys, dataKey: newDataKey, color }
+                                            });
+                                        }}
+                                        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    >
+                                        <X className="h-3 w-3" />
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
 
-                        <Input
-                            value={dataKey}
-                            onChange={(e) => {
-                                setDataKey(e.target.value);
-                                updateWidget({
-                                    config: { ...widget?.config, dataKey: e.target.value, color }
-                                });
-                            }}
-                            placeholder="Select below or type path..."
-                            className="font-mono text-xs"
-                        />
-                        <DataFieldSelector
-                            selectedPath={dataKey}
-                            selectedPaths={dataKeys}
-                            multiSelect={type === 'table' || type === 'trend' || type === 'bar' || type === 'radar'}
-                            onSelect={(path) => {
-                                if (type === 'table' || type === 'trend' || type === 'bar' || type === 'radar') {
-                                    // Multi-select logic
-                                    let newKeys = [...dataKeys];
-                                    if (newKeys.includes(path)) {
-                                        newKeys = newKeys.filter(k => k !== path);
-                                    } else {
-                                        newKeys.push(path);
-                                    }
-                                    // Also update primary dataKey for backward compat or single-view
-                                    // Check compatibility
-                                    if (dataKeys.length > 0) {
-                                        const firstKey = dataKeys[0];
-                                        const isFirstIntraday = isIntradayKey(firstKey);
-                                        const isNewIntraday = isIntradayKey(path);
-
-                                        if (isFirstIntraday !== isNewIntraday) {
-                                            // Incompatible types
-                                            // Ideally show a toast, but for now just ignore or alert
-                                            console.warn("Cannot mix Intraday and Daily data points.");
-                                            return;
-                                        }
-                                    }
-
-                                    setDataKeys(newKeys);
-
-                                    // Update primary dataKey to the last selected one, or clear if empty
-                                    // If we just removed 'path', we should pick another one.
-                                    const finalDataKey = newKeys.length > 0 ? newKeys[newKeys.length - 1] : "";
-
-                                    setDataKey(finalDataKey);
-                                    updateWidget({
-                                        config: { ...widget?.config, dataKeys: newKeys, dataKey: finalDataKey, color }
-                                    });
+                    <Label htmlFor="data-path">Field path</Label>
+                    <Input
+                        id="data-path"
+                        value={dataKey}
+                        onChange={(e) => {
+                            setDataKey(e.target.value);
+                            updateWidget({
+                                config: { ...widget?.config, dataKey: e.target.value, color }
+                            });
+                        }}
+                        placeholder="Pick a field below, or type a path such as sleep.score"
+                        className="font-mono text-xs"
+                    />
+                    <DataFieldSelector
+                        selectedPath={dataKey}
+                        selectedPaths={dataKeys}
+                        multiSelect={multiSelect}
+                        onSelect={(path) => {
+                            if (multiSelect) {
+                                // Multi-select logic
+                                let newKeys = [...dataKeys];
+                                if (newKeys.includes(path)) {
+                                    newKeys = newKeys.filter(k => k !== path);
                                 } else {
-                                    // Single select
-                                    setDataKey(path);
-                                    updateWidget({
-                                        config: { ...widget?.config, dataKey: path, color }
-                                    });
+                                    newKeys.push(path);
                                 }
-                            }}
-                            isSelectable={(field) => {
-                                // 1. Check for incompatible field names (timestamp, etc.)
-                                if (type === 'trend' || type === 'bar' || type === 'radar') {
-                                    const lower = field.toLowerCase();
-                                    if (lower.endsWith('_time') ||
-                                        lower.endsWith('_date') ||
-                                        lower.endsWith('_id') ||
-                                        lower.endsWith('_code') ||
-                                        lower === 'comment' ||
-                                        lower === 'day' ||
-                                        lower === 'timestamp') {
-                                        return false;
+                                // Also update primary dataKey for backward compat or single-view
+                                // Check compatibility
+                                if (dataKeys.length > 0) {
+                                    const firstKey = dataKeys[0];
+                                    const isFirstIntraday = isIntradayKey(firstKey);
+                                    const isNewIntraday = isIntradayKey(path);
+
+                                    if (isFirstIntraday !== isNewIntraday) {
+                                        // Incompatible types
+                                        // Ideally show a toast, but for now just ignore or alert
+                                        console.warn("Cannot mix Intraday and Daily data points.");
+                                        return;
                                     }
                                 }
 
+                                setDataKeys(newKeys);
+
+                                // Update primary dataKey to the last selected one, or clear if empty
+                                // If we just removed 'path', we should pick another one.
+                                const finalDataKey = newKeys.length > 0 ? newKeys[newKeys.length - 1] : "";
+
+                                setDataKey(finalDataKey);
+                                updateWidget({
+                                    config: { ...widget?.config, dataKeys: newKeys, dataKey: finalDataKey, color }
+                                });
+                            } else {
+                                // Single select
+                                setDataKey(path);
+                                updateWidget({
+                                    config: { ...widget?.config, dataKey: path, color }
+                                });
+                            }
+                        }}
+                        isSelectable={(field) => {
+                            // 1. Check for incompatible field names (timestamp, etc.)
+                            if (type === 'trend' || type === 'bar' || type === 'radar') {
+                                const lower = field.toLowerCase();
+                                if (lower.endsWith('_time') ||
+                                    lower.endsWith('_date') ||
+                                    lower.endsWith('_id') ||
+                                    lower.endsWith('_code') ||
+                                    lower === 'comment' ||
+                                    lower === 'day' ||
+                                    lower === 'timestamp') {
+                                    return false;
+                                }
+                            }
 
 
-                                return true;
-                            }}
-                        />
-                    </div>
+
+                            return true;
+                        }}
+                    />
                 </div>
+            </section>
 
+            <section className="space-y-3" aria-labelledby="editor-style-heading">
+                <PanelSectionHeading id="editor-style-heading">Appearance</PanelSectionHeading>
                 <div className="space-y-2">
-                    <Label>Accent Color</Label>
-                    <div className="grid grid-cols-4 gap-2">
-                        {[
-                            { color: '#0072B2', label: 'Blue' },
-                            { color: '#009E73', label: 'Green' },
-                            { color: '#E69F00', label: 'Amber' },
-                            { color: '#D55E00', label: 'Vermillion' },
-                            { color: '#CC79A7', label: 'Purple' },
-                            { color: '#56B4E9', label: 'Sky' },
-                            { color: '#8AB4F8', label: 'Light blue' }
-                        ].map(({ color: c, label }) => (
-                            <div
+                    <Label id="accent-label">Accent color</Label>
+                    <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-labelledby="accent-label">
+                        {ACCENTS.map(({ color: c, label }) => (
+                            <button
                                 key={c}
+                                type="button"
+                                role="radio"
+                                aria-checked={color === c}
                                 className={cn(
-                                    "flex items-center gap-2 p-2 rounded-md border cursor-pointer hover:bg-secondary/50 transition-all",
-                                    color === c ? "border-primary bg-secondary/50" : "border-transparent"
+                                    "flex h-8 items-center gap-2 rounded-md border px-2 text-left text-xs transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    color === c ? "border-foreground/40 bg-accent font-medium" : "border-transparent text-muted-foreground"
                                 )}
                                 onClick={() => {
                                     setColor(c);
@@ -324,18 +347,18 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
                                     });
                                 }}
                             >
-                                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: c }} />
-                                <span className="text-xs">{label}</span>
-                            </div>
+                                <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ backgroundColor: c }} aria-hidden="true" />
+                                <span>{label}</span>
+                            </button>
                         ))}
                     </div>
                 </div>
 
                 {type === 'trend' && (
-                    <div className="flex items-center justify-between space-x-2">
-                        <Label htmlFor="show-points" className="flex flex-col space-y-1">
-                            <span>Show Data Points</span>
-                            <span className="font-normal text-xs text-muted-foreground">Show dots for each data point</span>
+                    <div className="flex items-center justify-between gap-3 rounded-md border bg-background p-3">
+                        <Label htmlFor="show-points" className="flex flex-col gap-1">
+                            <span>Show data points</span>
+                            <span className="text-xs font-normal text-muted-foreground">Draw a dot for every value</span>
                         </Label>
                         <Switch
                             id="show-points"
@@ -349,18 +372,7 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
                         />
                     </div>
                 )}
-            </div>
-
-            <div className="p-6 border-t bg-card">
-                <div className="flex gap-2">
-                    <Button variant="outline" className="w-full" onClick={onClose}>
-                        Cancel
-                    </Button>
-                    <Button className="w-full" onClick={handleSave}>
-                        Done
-                    </Button>
-                </div>
-            </div>
-        </div>
+            </section>
+        </SidePanel>
     );
 }

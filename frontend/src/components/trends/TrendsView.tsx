@@ -16,7 +16,6 @@ import { aggregateDailySeries } from '@/lib/data-processing';
 import { METRIC_GROUPS, TREND_METRICS, formatMetricValue, formatMetricWithUnit, metricFor, metricUnit, type MetricDef } from '@/lib/metrics';
 import { copyTableAsCsv, interquartileBand, pearson, rollingMean, seriesStats, type ChartTable } from '@/lib/series-table';
 import { AGGREGATION_LABEL, autoAggregation, dayIndex, rangeDef, type Aggregation, type ResolvedAggregation } from '@/lib/trends';
-import { cn } from '@/lib/utils';
 
 const ISO = 'yyyy-MM-dd';
 const BASELINE_DAYS = 90;
@@ -212,17 +211,17 @@ export function TrendsView({ latestDate }: TrendsViewProps) {
         if (loading) return <WidgetSkeleton kind="chart" />;
         if (error) {
             return (
-                <div className="flex flex-col items-center justify-center h-full text-center p-4 rounded-lg bg-secondary/10" role="alert">
+                <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed border-destructive/40 p-4 text-center" role="alert">
                     <span className="text-sm font-medium">Couldn't load this metric</span>
-                    <span className="text-xs text-muted-foreground mt-1 max-w-[320px] truncate" title={error}>{error}</span>
+                    <span className="mt-1 max-w-[320px] truncate text-xs text-muted-foreground" title={error}>{error}</span>
                 </div>
             );
         }
         if (!model || !model.hasValues) {
             return (
-                <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center" role="img" aria-label={ariaLabel}>
-                    <span className="text-sm font-medium">No values in the last {range.short}</span>
-                    <span className="text-xs opacity-70 mt-1">Days synced from the ring have no scores yet — try a longer range or another metric</span>
+                <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center" role="img" aria-label={ariaLabel}>
+                    <span className="text-sm font-medium text-foreground">No values in the last {range.short}</span>
+                    <span className="mt-1 text-xs text-muted-foreground">Days synced from the ring have no scores yet — try a longer range or another metric</span>
                 </div>
             );
         }
@@ -253,29 +252,30 @@ export function TrendsView({ latestDate }: TrendsViewProps) {
     };
 
     return (
-        <div className="flex flex-col gap-4 h-full min-h-0">
+        <div className="flex h-full min-h-0 flex-col gap-4">
+            {/* Toolbar: what to plot, over which window */}
             <div className="flex flex-wrap items-end gap-3">
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1.5">
                     <Label htmlFor="trends-metric" className="text-xs text-muted-foreground">Metric</Label>
                     <Select value={metric.key} onValueChange={selectMetric}>
-                        <SelectTrigger id="trends-metric" className="h-9 w-[220px]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger id="trends-metric" className="w-[200px]"><SelectValue /></SelectTrigger>
                         <SelectContent>{metricOptions()}</SelectContent>
                     </Select>
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1.5">
                     <Label htmlFor="trends-secondary" className="text-xs text-muted-foreground">Compare with</Label>
                     <Select value={secondaryMetric?.key ?? 'none'} onValueChange={selectSecondary}>
-                        <SelectTrigger id="trends-secondary" className="h-9 w-[220px]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger id="trends-secondary" className="w-[200px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="none">None</SelectItem>
                             {metricOptions(metric.key)}
                         </SelectContent>
                     </Select>
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1.5">
                     <Label htmlFor="trends-aggregation" className="text-xs text-muted-foreground">Aggregation</Label>
                     <Select value={trends.aggregation} onValueChange={selectAggregation}>
-                        <SelectTrigger id="trends-aggregation" className="h-9 w-[150px]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger id="trends-aggregation" className="w-[150px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="auto">Auto{model ? ` (${model.aggregation === 'day' ? 'daily' : model.aggregation === 'week' ? 'weekly' : 'monthly'})` : ''}</SelectItem>
                             <SelectItem value="day">Daily</SelectItem>
@@ -284,34 +284,26 @@ export function TrendsView({ latestDate }: TrendsViewProps) {
                         </SelectContent>
                     </Select>
                 </div>
-                <div className="ml-auto flex items-center gap-2">
+                <div className="ml-auto flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground" id="trends-range-label">Range</span>
                     <TrendsRangeSelector value={trends.range} onChange={(range) => updateTrends({ range })} />
-                    <Button variant={viewAsTable ? 'secondary' : 'outline'} size="sm" className="gap-1.5" aria-pressed={viewAsTable} onClick={() => setViewAsTable(v => !v)}>
-                        <Table2 className="h-3.5 w-3.5" aria-hidden="true" /> {viewAsTable ? 'View as chart' : 'View as table'}
-                    </Button>
-                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { void copyTableAsCsv(table, metric.label); }}>
-                        <Copy className="h-3.5 w-3.5" aria-hidden="true" /> Copy CSV
-                    </Button>
                 </div>
             </div>
 
-            <section className="flex-1 min-h-0 flex flex-col rounded-lg border bg-card p-4 gap-3" aria-labelledby="trends-heading">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                        <h2 id="trends-heading" className="text-sm font-medium">{metric.label}</h2>
+            <section className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border bg-card p-4" aria-labelledby="trends-heading">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <h2 id="trends-heading" className="text-base font-medium leading-tight">{metric.label}</h2>
                         <p className="text-sm tabular-nums text-muted-foreground" aria-live="polite">
-                            <span className="text-foreground font-semibold">Latest {latestText}</span>
+                            <span className="font-semibold text-foreground">Latest {latestText}</span>
                             {model?.latest && <span className="text-xs"> ({format(parseISO(model.latest.date), 'd MMM')})</span>}
                             <span className="mx-1.5">·</span>
-                            <span className="text-foreground font-semibold">Avg {avgText}</span>
+                            <span className="font-semibold text-foreground">Avg {avgText}</span>
                             <span className="text-xs"> ({range.short})</span>
                         </p>
                         {delta && (
                             <span
-                                className={cn(
-                                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] tabular-nums",
-                                    "text-muted-foreground"
-                                )}
+                                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs tabular-nums text-muted-foreground"
                                 title={`Average of this period vs the ${range.days} days before it`}
                             >
                                 <span aria-hidden="true">{delta.arrow}</span>
@@ -320,29 +312,39 @@ export function TrendsView({ latestDate }: TrendsViewProps) {
                             </span>
                         )}
                     </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                        <Button variant={viewAsTable ? 'secondary' : 'ghost'} size="sm" aria-pressed={viewAsTable} onClick={() => setViewAsTable(v => !v)}>
+                            <Table2 className="h-3.5 w-3.5" aria-hidden="true" /> {viewAsTable ? 'View as chart' : 'View as table'}
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => { void copyTableAsCsv(table, metric.label); }}>
+                            <Copy className="h-3.5 w-3.5" aria-hidden="true" /> Copy CSV
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="min-h-[280px] flex-1">
+                    {renderBody()}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <p>
+                        Dots are daily values; the line is the {AGGREGATION_LABEL[model?.aggregation ?? 'day'].toLowerCase()}. The dashed marker is the selected day — click a dot to select that day.
+                        {secondaryMetric && model && (
+                            <span className="tabular-nums">
+                                {' '}{model.correlation
+                                    ? <>Pearson r = {model.correlation.r.toFixed(2)} · n = {model.correlation.n} days</>
+                                    : <>Not enough overlapping days for a correlation</>}
+                                {' '}<span className="italic">(correlation, not cause)</span>.
+                            </span>
+                        )}
+                    </p>
                     {model?.baseline && (
-                        <p className="text-[11px] text-muted-foreground" title={`p25–p75 of the last ${model.baseline.n} days`}>
-                            <span className="inline-block h-2.5 w-2.5 rounded-sm align-middle mr-1" style={{ backgroundColor: `${PRIMARY_COLOR}33` }} aria-hidden="true" />
+                        <p className="shrink-0" title={`p25–p75 of the last ${model.baseline.n} days`}>
+                            <span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm align-middle" style={{ backgroundColor: `${PRIMARY_COLOR}33` }} aria-hidden="true" />
                             Typical range {formatMetricValue(model.baseline.low, metric.kind, units)}–{formatMetricValue(model.baseline.high, metric.kind, units)}{metricUnit(metric.kind, units) && metric.kind !== 'temp_dev' ? ` ${metricUnit(metric.kind, units)}` : ''} (90 d)
                         </p>
                     )}
                 </div>
-
-                <div className="flex-1 min-h-[280px]">
-                    {renderBody()}
-                </div>
-
-                {secondaryMetric && model && (
-                    <p className="text-[11px] text-muted-foreground tabular-nums">
-                        {model.correlation
-                            ? <>Pearson r = {model.correlation.r.toFixed(2)} · n = {model.correlation.n} days · </>
-                            : <>Not enough overlapping days for a correlation · </>}
-                        <span className="italic">correlation, not cause</span>
-                    </p>
-                )}
-                <p className="text-[11px] text-muted-foreground">
-                    Dots are daily values; the line is the {AGGREGATION_LABEL[model?.aggregation ?? 'day'].toLowerCase()}. The dashed vertical marker is the selected day — click a dot to select that day.
-                </p>
             </section>
         </div>
     );

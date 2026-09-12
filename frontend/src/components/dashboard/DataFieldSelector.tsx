@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { humanizeKey } from "@/lib/format";
 import {
     ChevronRight,
     ChevronDown,
@@ -90,14 +91,18 @@ function FieldNode({ name, node, pathPrefix, onSelect, selectedPath, selectedPat
             >
                 {hasChildren ? (
                     <button
+                        type="button"
                         onClick={toggle}
-                        className="p-1 hover:bg-accent rounded-sm text-muted-foreground"
+                        aria-label={isExpanded ? `Collapse ${name}` : `Expand ${name}`}
+                        aria-expanded={isExpanded}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                         {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                     </button>
-                ) : <span className="w-5" />}
+                ) : <span className="w-7 shrink-0" />}
 
                 <button
+                    type="button"
                     onClick={() => {
                         if (hasChildren) {
                             toggle();
@@ -106,11 +111,10 @@ function FieldNode({ name, node, pathPrefix, onSelect, selectedPath, selectedPat
                         }
                     }}
                     className={cn(
-                        "flex-1 flex items-center gap-2 p-1.5 text-sm font-medium rounded-sm transition-colors text-left",
-                        !hasChildren && "hover:bg-accent/50",
-                        hasChildren && "cursor-default",
+                        "flex flex-1 items-center gap-2 rounded-sm p-1.5 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "hover:bg-accent/60",
                         level > 0 && "text-xs",
-                        !multiSelect && selectedPath === (pathPrefix || name) && "bg-primary/10 text-primary"
+                        !multiSelect && selectedPath === (pathPrefix || name) && "bg-accent text-foreground"
                     )}
                 >
                     {multiSelect && !hasChildren && (
@@ -120,8 +124,8 @@ function FieldNode({ name, node, pathPrefix, onSelect, selectedPath, selectedPat
                             className="mr-2 h-3.5 w-3.5"
                         />
                     )}
-                    {level === 0 && <Icon className="h-4 w-4 text-primary shrink-0" />}
-                    <span className={cn("truncate", level === 0 && "capitalize")}>{name.replace('_', ' ')}</span>
+                    {level === 0 && <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+                    <span className="truncate">{humanizeKey(name)}</span>
                 </button>
             </div>
 
@@ -136,16 +140,19 @@ function FieldNode({ name, node, pathPrefix, onSelect, selectedPath, selectedPat
                         return (
                             <button
                                 key={field}
+                                type="button"
                                 onClick={() => selectable && onSelect(path)}
                                 disabled={!selectable}
+                                aria-pressed={multiSelect ? undefined : !!isSelected}
+                                title={path}
                                 className={cn(
-                                    "flex items-center w-full text-left py-1 text-xs rounded-sm transition-colors",
-                                    !selectable && "opacity-50 cursor-not-allowed",
+                                    "flex min-h-7 w-full items-center rounded-sm py-1 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    !selectable && "cursor-not-allowed opacity-50",
                                     !multiSelect && isSelected
-                                        ? "bg-primary/10 text-primary font-medium"
-                                        : selectable ? "text-muted-foreground hover:bg-accent hover:text-accent-foreground" : "text-muted-foreground"
+                                        ? "bg-accent font-medium text-foreground"
+                                        : selectable ? "text-muted-foreground hover:bg-accent/60 hover:text-foreground" : "text-muted-foreground"
                                 )}
-                                style={{ paddingLeft: `${(level + 1) * 12 + 20}px` }}
+                                style={{ paddingLeft: `${(level + 1) * 12 + 28}px` }}
                             >
                                 {multiSelect && (
                                     <Checkbox
@@ -155,7 +162,7 @@ function FieldNode({ name, node, pathPrefix, onSelect, selectedPath, selectedPat
                                         className="mr-2 h-3.5 w-3.5"
                                     />
                                 )}
-                                {field}
+                                <span className="truncate">{humanizeKey(field)}</span>
                             </button>
                         );
                     })}
@@ -250,17 +257,17 @@ export function DataFieldSelector({ onSelect, selectedPath, selectedPaths, multi
     }, []);
 
     if (loading) {
-        return <div className="p-4 text-xs text-muted-foreground">Loading schema...</div>;
+        return <div className="rounded-md border border-dashed p-4 text-xs text-muted-foreground" aria-busy="true">Loading fields…</div>;
     }
 
     if (error) {
-        return <div className="p-4 text-xs text-destructive">Error loading schema: {error}</div>;
+        return <div className="rounded-md border border-dashed border-destructive/40 p-4 text-xs text-destructive" role="alert">Couldn't load the fields: {error}</div>;
     }
 
     return (
-        <div className="border rounded-md bg-background h-[300px] flex flex-col">
-            <div className="p-2 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
-                Available Data Points
+        <div className="flex h-[300px] flex-col rounded-md border bg-background">
+            <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                Available fields
             </div>
             <ScrollArea className="flex-1">
                 <div className="p-2 space-y-1">

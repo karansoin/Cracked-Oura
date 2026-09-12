@@ -1,5 +1,5 @@
 import { useIsDark } from '@/components/theme-provider';
-import { getBand, bandColor } from '@/lib/bands';
+import { getBand, bandColor, bandTextColor } from '@/lib/bands';
 import { humanizeKey } from '@/lib/format';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -25,9 +25,9 @@ export function ContributorsWidget({ contributors, title, emptyTitle = 'No score
 
     if (rows.length === 0 || !hasAny) {
         return (
-            <div className="flex flex-col items-center justify-center h-full rounded-lg border border-dashed text-muted-foreground p-4 text-center">
-                <span className="text-sm font-medium">{emptyTitle}</span>
-                <span className="text-xs opacity-70 mt-1">Contributors come from Oura's daily summaries</span>
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed p-4 text-center">
+                <span className="text-sm font-medium text-foreground">{emptyTitle}</span>
+                <span className="mt-1 text-xs text-muted-foreground">Contributors come from Oura's daily summaries</span>
             </div>
         );
     }
@@ -38,22 +38,23 @@ export function ContributorsWidget({ contributors, title, emptyTitle = 'No score
 
     return (
         <ScrollArea className="h-full -mr-3 pr-3">
-            <ul className="flex flex-col gap-1.5 py-0.5" role="list" aria-label={`${title ?? 'Contributors'}: ${summary}`}>
+            <ul className="flex flex-col gap-2 py-0.5" role="list" aria-label={`${title ?? 'Contributors'}: ${summary}`}>
                 {rows.map(({ key, label, value }) => {
                     const band = getBand(value);
                     const color = bandColor(band, isDark);
+                    const textColor = bandTextColor(band, isDark);
                     const pct = value === null ? 0 : Math.max(0, Math.min(100, value));
                     return (
                         <li key={key} className="flex flex-col gap-1">
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground truncate">{label}</span>
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                                <span className="truncate text-muted-foreground">{label}</span>
                                 <span className="tabular-nums font-medium flex items-center gap-1.5">
                                     {value === null ? (
                                         <span className="text-muted-foreground">—</span>
                                     ) : (
                                         <>
                                             <span>{Math.round(value)}</span>
-                                            <span className="text-[10px] font-normal" style={{ color }}>{band?.glyph} {band?.label}</span>
+                                            <span className="text-xs font-normal" style={{ color: textColor }}>{band?.glyph} {band?.label}</span>
                                         </>
                                     )}
                                 </span>
