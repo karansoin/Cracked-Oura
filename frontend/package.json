@@ -1,9 +1,9 @@
 {
   "name": "cracked-oura",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.2.0",
   "description": "Cracked Oura Dashboard",
-  "author": "Elmo Ahorinta",
+  "author": "Karan Soin",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -24,9 +24,14 @@
     ],
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "!dist/mac-arm64/**",
+      "!dist/*.dmg",
+      "!dist/*.zip",
+      "!dist/*.blockmap",
+      "!dist/builder-*.yml"
     ],
-    "appId": "com.elmoahorinta.crackedoura",
+    "appId": "com.karansoin.crackedoura",
     "productName": "Cracked Oura",
     "mac": {
       "icon": "icon.png",
@@ -34,7 +39,16 @@
       "extendInfo": {
         "NSBluetoothAlwaysUsageDescription": "Cracked Oura connects to your Oura ring over Bluetooth to read your data.",
         "NSBluetoothPeripheralUsageDescription": "Cracked Oura connects to your Oura ring over Bluetooth to read your data."
-      }
+      },
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.healthcare-fitness"
     },
     "win": {
       "icon": "icon.png"
@@ -46,6 +60,9 @@
         "deb"
       ],
       "category": "Utility"
+    },
+    "directories": {
+      "output": "release"
     }
   },
   "dependencies": {

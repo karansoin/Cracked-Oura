@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import sys
 import tempfile
 
 os.environ.setdefault("CRACKED_OURA_DATA_DIR", tempfile.mkdtemp(prefix="cracked-oura-sup-"))
@@ -49,3 +50,20 @@ def test_worker_argv_json_roundtrip():
 
     argv = _worker_argv({"op": "sync", "address": None, "full": True})
     assert json.loads(argv[-1]) == {"op": "sync", "address": None, "full": True}
+
+
+def test_hung_worker_is_stopped_with_hint(monkeypatch):
+    import backend.src.ble.supervisor as sup_mod
+
+    monkeypatch.setitem(sup_mod.OP_TIMEOUTS, "scan", 0.5)
+    # A worker that never prints a result: emulate with a sleeping python process.
+    monkeypatch.setattr(sup_mod, "_worker_argv", lambda cmd: [sys.executable, "-c", "import time; time.sleep(30)"])
+    sup = sup_mod.RingSupervisor()
+
+    async def go():
+        assert sup.start_scan(0.0)
+        await asyncio.wait_for(sup._task, 30)
+
+    asyncio.run(go())
+    assert sup.state == "error" and "did not finish" in (sup.error or "")
+    assert not sup.busy

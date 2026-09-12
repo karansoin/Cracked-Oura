@@ -24,6 +24,10 @@ from ..paths import get_user_data_dir
 
 logger = logging.getLogger("RingSupervisor")
 
+# Generous per-operation ceilings; a worker blocked on the macOS permission dialog
+# or a ring that never answers is stopped instead of hanging forever.
+OP_TIMEOUTS = {"scan": 90.0, "probe": 180.0, "pair": 300.0, "sync": 1800.0, "live": 900.0}
+
 PERMISSION_HINT = (
     "Bluetooth is not available to this app. On macOS open System Settings → Privacy & Security → Bluetooth and "
     "allow Cracked Oura (when running from a terminal, allow the terminal app), then try again."
@@ -184,8 +188,10 @@ class RingSupervisor:
                 stderr_tail.append(line.decode("utf-8", "replace").rstrip())
 
         err_task = asyncio.create_task(drain_stderr())
-        try:
-            assert self._proc.stdout
+        timeout = OP_TIMEOUTS.get(cmd.get("op", ""), 600.0) + float(cmd.get("duration", 0) or 0)
+
+        async def read_events():
+            assert self._proc and self._proc.stdout
             async for raw in self._proc.stdout:
                 line = raw.decode("utf-8", "replace").strip()
                 if not line:
@@ -196,7 +202,20 @@ class RingSupervisor:
                     continue
                 self._apply(ev)
                 if ev.get("type") == "result":
-                    got_result = True
+                    return True
+            return False
+
+        try:
+            try:
+                got_result = await asyncio.wait_for(read_events(), timeout)
+            except asyncio.TimeoutError:
+                self._kill()
+                self._finish_error(
+                    f"The Bluetooth operation did not finish within {int(timeout)} s and was stopped. "
+                    "If macOS is asking whether Cracked Oura may use Bluetooth, click Allow and try again; "
+                    "otherwise put the ring on its charger and retry."
+                )
+                got_result = True  # error already reported
             rc = await self._proc.wait()
         except asyncio.CancelledError:
             self._kill()
