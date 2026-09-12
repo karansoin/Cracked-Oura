@@ -29,7 +29,7 @@ interface DataSyncPanelProps {
 
 const INVENTORY_ORDER = [
     'sleep', 'activity', 'readiness', 'resilience', 'cardiovascular_age', 'sleep_session', 'workout', 'meditation',
-    'ring_battery', 'heart_rate', 'temperature', 'ring_configuration', 'tag', 'vo2max',
+    'ring_battery', 'heart_rate', 'temperature', 'ring_configuration', 'tag', 'vo2max', 'live_session', 'ring_event',
 ];
 
 const INVENTORY_LABEL: Record<string, string> = {
@@ -47,6 +47,8 @@ const INVENTORY_LABEL: Record<string, string> = {
     ring_configuration: 'Ring configuration',
     tag: 'Tags',
     vo2max: 'VO₂ max',
+    live_session: 'Live sessions',
+    ring_event: 'Raw ring events',
 };
 
 /** Flatten an ingest summary into "label: count" rows (numbers, or objects with numeric fields). */

@@ -46,6 +46,7 @@ TABLES (SQLite). Daily summaries are keyed by `day` (YYYY-MM-DD text):
 - cardiovascular_age: day, vascular_age
 - vo2max: day, vo2_max
 - tag: start_time, end_time, tag_type_code, comment
+- live_session: recorded live sessions from the ring. columns id, kind ('steadiness','workout','breathing','orthostatic','free'), simulated (1 = synthetic test), started_at, duration_s, metrics JSON (json_extract(metrics,'$.tremor.steadiness_score'), '$.tremor.dominant_hz', '$.motion.activity', '$.hrv.rmssd_ms', '$.breathing.resonance', '$.orthostatic.delta_stand'), notes
 RULES: durations are SECONDS (divide by 3600 for hours). Scores live ONLY in sleep/readiness/activity.
 "Last 7 days of data" means the 7 most recent days present in the table (ORDER BY day DESC LIMIT 7), not relative to today unless asked.
 JSON keys: json_extract(contributors, '$.deep_sleep'). Always use ORDER BY / LIMIT and aliases; keep queries simple.

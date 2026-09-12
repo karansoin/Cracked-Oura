@@ -61,6 +61,13 @@ try:  # pragma: no cover - optional
     from ..models import Vo2Max  # type: ignore
 
     MODEL_MAP["vo2max"] = Vo2Max
+except Exception:  # pragma: no cover
+    pass
+try:  # pragma: no cover - optional
+    from ..models import LiveSession as _LiveSession, RingEvent as _RingEvent  # type: ignore
+
+    MODEL_MAP["live_session"] = _LiveSession
+    MODEL_MAP["ring_event"] = _RingEvent
 except Exception:
     pass
 
@@ -293,6 +300,12 @@ def delete_all_data(db: Session = Depends(get_db)):
     """Wipe every table (used by 'Delete local data')."""
     for model in MODEL_MAP.values():
         db.execute(model.__table__.delete())
+    try:  # ring bookkeeping: the events are gone, so the next sync must start from the beginning
+        from ..models import RingState as _RingState
+
+        db.execute(_RingState.__table__.update().values(next_cursor=0, events_total=0, last_event_unix=None))
+    except Exception:  # pragma: no cover
+        pass
     db.commit()
     return {"message": "All local data deleted"}
 
