@@ -192,3 +192,28 @@ Severity: **P0** = blocks core use for everyone; **P1** = wrong behaviour or dat
 - Repro `logtest.py`: second `basicConfig` is a no-op, log file stays 0 bytes (S4).
 - Repro `routetest.py`: duplicate route resolves to the router version (A7).
 - `dist-electron/main.js` vs fresh `tsc` output: identical (not stale).
+
+---
+
+## 6. Status after the rebuild (2026-09-11, branch `rebuild`)
+
+The fork was rebuilt as a **strictly local** application. Every Oura-facing path
+was removed: no website automation, no login/OTP, no export requests, no cloud API.
+Data enters only from the ring over Bluetooth or from an export ZIP already on disk.
+
+| Area | Before | After |
+|---|---|---|
+| Build | `npm install` failed (B1), `pyinstaller` missing (B2) | Clean install; pinned `requirements.txt`; PyInstaller spec collects bleak/cryptography/langchain; frozen backend boots and serves |
+| Data source | Playwright robot against membership.ouraring.com (A1–A14, all broken) | `backend/src/ble/` direct-BLE client: framing, AES app-auth, event decoders, incremental history drain with cursor checkpoints, derivation into dashboard tables, supervised worker process; ring CLI |
+| Import | Hand-rolled `;` splitter, wrong file names, silent zero-row imports (I1–I10) | csv-module reader, delimiter sniffing, both naming schemes, per-file/row error isolation, summary dict, vo2max, synthetic-export fixture, 39 tests |
+| API | Duplicate routes, blocking handlers, CORS `*`, wrong DB path for the analyst (S1–S10) | Single router, worker-thread analyst and import, restricted CORS, health/inventory/sync/BLE/SSE endpoints, hardened query validation, rotating file log |
+| AI analyst | Pointed at an empty DB, no history, event-loop blocking | Correct DB opened read-only, tool-calling agent, conversation history, Ollama or OpenAI-compatible, connection test |
+| Frontend | Login/OTP UI wired to a status model that never matched (F1–F15) | Ring page, Data & Sync, Settings, onboarding, default Overview, hypnogram + contributors widgets, score bands, shortcuts, toasts, skeletons; timezone/duration/intraday bugs fixed; 0 ESLint errors |
+| Electron | `nodeIntegration`, no readiness wait, activate crash (E1–E5) | contextIsolation + sandbox, backend health wait, port-conflict logging, process-group kill, Bluetooth usage descriptions in the bundle |
+| Tests | none | 57 backend tests (protocol vectors, client, store/derivation, manager with simulated ring, supervisor, ingestion) |
+
+Known limits: the ring does not emit Oura's 0–100 scores (computed in the phone
+app), so ring-synced days show measured values but no score; SpO2 raw events are
+stored but not yet summarised; pairing requires a factory-reset ring
+(see `docs/BLE.md`); a backend started from a terminal without Bluetooth
+permission reports "unavailable" instead of scanning.

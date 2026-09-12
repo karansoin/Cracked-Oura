@@ -91,6 +91,8 @@ here from the documented byte layouts; see `backend/src/ble/`.
   System Settings → Privacy & Security → Bluetooth.
 * CoreBluetooth identifies peripherals by a per-Mac UUID that can change
   between scans, so the app always connects from a fresh scan.
+* Bluetooth work runs in a separate worker process supervised by the API, so a
+  permission failure can never take the app's backend down.
 * A ring that is currently connected to a phone cannot be connected from the
   Mac (single link); the connect attempt times out after 45 s.
 
