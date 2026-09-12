@@ -5,7 +5,8 @@ import { MetricWidget } from './widgets/MetricWidget';
 import { BarChartCanvas } from './widgets/BarChartCanvas';
 import { RadarChartCanvas } from './widgets/RadarChartCanvas';
 import { JSONWidget } from './widgets/JSONWidget';
-import { HypnogramCanvas } from './widgets/HypnogramCanvas';
+import { HypnogramWidget } from './widgets/HypnogramWidget';
+import type { HypnogramOverlay } from './widgets/HypnogramCanvas';
 import { ContributorsWidget } from './widgets/ContributorsWidget';
 import { WidgetSkeleton } from './widgets/WidgetSkeleton';
 import { useAppStatus } from '@/contexts/AppStatusContext';
@@ -22,6 +23,8 @@ interface WidgetRegistryProps {
     compact?: boolean;
     /** True while the day payload for `date` is still loading. */
     isLoading?: boolean;
+    /** Hypnogram HR/HRV overlay toggles; null hides the overlay (short widgets). */
+    overlay?: HypnogramOverlay | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -44,7 +47,7 @@ const durationUnit = (key: string): 'minutes' | 'seconds' | null => {
 /** Widget types whose content comes from the single-day payload (so they show a skeleton while it loads). */
 const DAY_PAYLOAD_TYPES = new Set(['score', 'metric', 'hypnogram', 'contributors', 'radar']);
 
-export const WidgetRegistry = ({ widget, data, date, onUpdate, compact = false, isLoading = false }: WidgetRegistryProps) => {
+export const WidgetRegistry = ({ widget, data, date, onUpdate, compact = false, isLoading = false, overlay = null }: WidgetRegistryProps) => {
     const { units } = useAppStatus();
 
     // Helper to resolve dot notation
@@ -143,16 +146,14 @@ export const WidgetRegistry = ({ widget, data, date, onUpdate, compact = false, 
             const parentPath = key.includes('.') ? key.slice(0, key.lastIndexOf('.')) : key;
             const session = resolveData(parentPath);
             const phases = resolveData(key);
-            const startTime = isRecord(session)
-                ? (typeof session.bedtime_start === 'string' ? session.bedtime_start
-                    : typeof session.start_time === 'string' ? session.start_time : null)
-                : null;
             return (
-                <HypnogramCanvas
+                <HypnogramWidget
+                    session={isRecord(session) ? session : null}
                     phases={phases}
-                    startTime={startTime}
+                    date={resolvedDate}
                     dayLabel={dayLabel}
                     compact={compact}
+                    overlay={overlay}
                 />
             );
         }

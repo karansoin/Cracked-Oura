@@ -1,9 +1,10 @@
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import type { WidgetInstance, Dashboard, LayoutItem } from '@/types';
 import { useOuraData, type OuraDayData } from '@/hooks/useOuraData';
 import { useDashboardPersistence } from '@/hooks/useDashboardPersistence';
 import { useAppStatus } from '@/contexts/AppStatusContext';
 import { buildOverviewContents, buildOverviewDashboard } from '@/lib/defaultDashboard';
+import { DEFAULT_TRENDS_STATE, type TrendsState } from '@/lib/trends';
 import { format } from 'date-fns';
 
 // Initial empty dashboard skeleton
@@ -15,7 +16,7 @@ const EMPTY_DASHBOARD: Dashboard = {
 };
 
 export type PanelType = 'none' | 'chat' | 'editor' | 'settings' | 'data';
-export type ViewType = 'dashboard' | 'chat-page' | 'ring';
+export type ViewType = 'dashboard' | 'chat-page' | 'ring' | 'trends';
 
 interface DashboardContextType {
     // Dashboard State
@@ -60,6 +61,10 @@ interface DashboardContextType {
     selectedDate: Date;
     setSelectedDate: (date: Date) => void;
     data: OuraDayData;
+
+    // Trends view (metric / range / aggregation), kept across view switches
+    trends: TrendsState;
+    updateTrends: (patch: Partial<TrendsState>) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -73,6 +78,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [isDatePickerOpen, setDatePickerOpen] = useState(false);
     const [isShortcutSheetOpen, setShortcutSheetOpen] = useState(false);
+    const [trends, setTrends] = useState<TrendsState>(DEFAULT_TRENDS_STATE);
+    const updateTrends = useCallback((patch: Partial<TrendsState>) => setTrends(prev => ({ ...prev, ...patch })), []);
 
     // Dashboards
     const [dashboards, setDashboards] = useState<Dashboard[]>([EMPTY_DASHBOARD]);
@@ -311,7 +318,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             deleteWidget,
             selectedDate,
             setSelectedDate,
-            data
+            data,
+            trends,
+            updateTrends,
         }}>
             {children}
         </DashboardContext.Provider>

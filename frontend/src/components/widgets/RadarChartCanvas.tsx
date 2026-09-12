@@ -8,8 +8,12 @@ import {
     Legend,
     type ChartOptions
 } from 'chart.js';
+import { useMemo } from 'react';
 import { Radar } from 'react-chartjs-2';
 import { useTheme } from '@/components/theme-provider';
+import { useChartTable } from '@/contexts/ChartTableContext';
+import { formatNumber, seriesStats, type ChartTable } from '@/lib/series-table';
+import { SeriesTable } from './SeriesTable';
 
 // Register ChartJS components
 ChartJS.register(
@@ -32,20 +36,38 @@ export function RadarChartCanvas({ data, dataKey, axisKey = "subject", color = "
     const { theme } = useTheme();
     const isDark = theme === 'dark';
 
-    if (!data || !Array.isArray(data) || data.length === 0) {
+    const rows = useMemo(() => (Array.isArray(data) ? data : []), [data]);
+    const values = useMemo(() => rows.map(d => (typeof d[dataKey] === 'number' && Number.isFinite(d[dataKey]) ? d[dataKey] : null)), [rows, dataKey]);
+    const stats = seriesStats(values);
+
+    const table = useMemo<ChartTable | null>(() => (rows.length === 0 ? null : {
+        columns: ['Contributor', 'Value'],
+        rows: rows.map((d, i) => [String(d[axisKey] ?? ''), values[i] === null ? '' : formatNumber(values[i])]),
+    }), [rows, values, axisKey]);
+    const viewAsTable = useChartTable(table);
+
+    const summary = stats
+        ? `Radar chart of ${rows.length} contributors: min ${formatNumber(stats.min)}, max ${formatNumber(stats.max)}, average ${formatNumber(stats.avg, 1)}.`
+        : 'Radar chart: no values.';
+
+    if (viewAsTable && table) {
+        return <SeriesTable table={table} caption={summary} />;
+    }
+
+    if (rows.length === 0 || !stats) {
         return (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                No data available for radar chart
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm text-center p-4" role="img" aria-label={summary}>
+                <span className="font-medium">{rows.length === 0 ? 'No data for this day' : 'No score (ring data)'}</span>
             </div>
         );
     }
 
     const chartData = {
-        labels: data.map(d => String(d[axisKey] ?? '')),
+        labels: rows.map(d => String(d[axisKey] ?? '')),
         datasets: [
             {
                 label: 'Value',
-                data: data.map(d => (typeof d[dataKey] === 'number' ? d[dataKey] : null)),
+                data: values,
                 backgroundColor: `${color}80`, // 50% opacity
                 borderColor: color,
                 borderWidth: 2,
@@ -102,7 +124,7 @@ export function RadarChartCanvas({ data, dataKey, axisKey = "subject", color = "
     };
 
     return (
-        <div className="w-full h-full min-h-[200px]">
+        <div className="w-full h-full min-h-[200px]" role="img" aria-label={summary}>
             <Radar data={chartData} options={options} />
         </div>
     );

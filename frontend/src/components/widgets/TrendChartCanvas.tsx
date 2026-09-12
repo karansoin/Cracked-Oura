@@ -8,14 +8,19 @@ import {
     Tooltip,
     Filler,
     Legend,
-    type Chart,
     type ChartOptions,
-    type Plugin,
     type ScriptableContext
 } from 'chart.js';
+import { useMemo } from 'react';
 import { Line } from 'react-chartjs-2';
 import { useIsDark } from '@/components/theme-provider';
-import { BANDS, CHART_NEUTRAL, SERIES_PALETTE, withAlpha } from '@/lib/bands';
+import { useAppStatus } from '@/contexts/AppStatusContext';
+import { useChartTable } from '@/contexts/ChartTableContext';
+import { CHART_NEUTRAL, SERIES_PALETTE, withAlpha } from '@/lib/bands';
+import { hoverLinePlugin, scoreBandsPlugin } from '@/lib/chart-plugins';
+import { formatMetricValue, kindForKey } from '@/lib/metrics';
+import { formatNumber, seriesStats, type ChartTable } from '@/lib/series-table';
+import { SeriesTable } from './SeriesTable';
 
 // Register ChartJS components
 ChartJS.register(
@@ -43,11 +48,24 @@ interface TrendChartCanvasProps {
 
 const toNumber = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+/** "2024-04-29" or "2024-04-29 07:35" for intraday timestamps. */
+const formatRowDate = (label: string): string => {
+    if (!label.includes('T')) return label;
+    const d = new Date(label);
+    if (Number.isNaN(d.getTime())) return label;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPoints = false, ariaLabel }: TrendChartCanvasProps) {
     const isDark = useIsDark();
+    const { units } = useAppStatus();
 
     // Determine keys to plot
-    const keys = (dataKeys && dataKeys.length > 0) ? dataKeys : (dataKey ? [dataKey] : []);
+    const keys = useMemo(
+        () => ((dataKeys && dataKeys.length > 0) ? dataKeys : (dataKey ? [dataKey] : [])),
+        [dataKeys, dataKey],
+    );
 
     // Score charts (every key is a `*.score`) get band shading behind the lines.
     const isScoreChart = keys.length > 0 && keys.every(k => k.endsWith('.score'));
@@ -61,6 +79,47 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
     const ambiguous = new Set(lastSegments).size !== lastSegments.length;
     const seriesLabel = (key: string) => (ambiguous ? key.replace(/\./g, ' ') : (key.split('.').pop() ?? key)).replace(/_/g, ' ') || title;
 
+    // Plotted values per series (null-safe), for the table, the summary and the empty check.
+    const series = useMemo(
+        () => keys.map(key => data.map(d => toNumber(d[key] !== undefined ? d[key] : d.value))),
+        [keys, data],
+    );
+    const hasValues = series.some(values => values.some(v => v !== null));
+
+    const table = useMemo<ChartTable | null>(() => {
+        if (keys.length === 0 || data.length === 0) return null;
+        const kinds = keys.map(kindForKey);
+        return {
+            columns: ['Date', ...keys.map(seriesLabel)],
+            rows: data.map((row, i) => [
+                formatRowDate(String(row.date ?? '')),
+                ...series.map((values, s) => (values[i] === null ? '' : formatMetricValue(values[i], kinds[s], units))),
+            ]),
+        };
+        // seriesLabel is a pure function of `keys`
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [keys, data, series, units]);
+    const viewAsTable = useChartTable(table);
+
+    const summary = ariaLabel ?? `${title}: line chart over ${data.length} points. ` + keys.map((key, i) => {
+        const stats = seriesStats(series[i]);
+        if (!stats) return `${seriesLabel(key)}: no values`;
+        return `${seriesLabel(key)} min ${formatNumber(stats.min, 1)}, max ${formatNumber(stats.max, 1)}, average ${formatNumber(stats.avg, 1)}`;
+    }).join('; ') + '.';
+
+    if (viewAsTable && table) {
+        return <SeriesTable table={table} caption={summary} />;
+    }
+
+    if (!hasValues) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center" role="img" aria-label={`${title}: no values in this range`}>
+                <span className="text-sm font-medium">No values in this range</span>
+                <span className="text-xs opacity-70 mt-1">Days synced from the ring have no scores yet</span>
+            </div>
+        );
+    }
+
     // Prepare data for Chart.js
     const chartData = {
         labels: data.map(d => String(d.date ?? '')),
@@ -70,7 +129,7 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
 
             return {
                 label: label,
-                data: data.map(d => toNumber(d[key] !== undefined ? d[key] : d.value)),
+                data: series[index],
                 borderColor: seriesColor,
                 backgroundColor: (context: ScriptableContext<'line'>) => {
                     const ctx = context.chart.ctx;
@@ -100,6 +159,8 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
             intersect: false,
         },
         plugins: {
+            scoreBands: { enabled: isScoreChart, isDark },
+            hoverLine: { color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' },
             legend: {
                 display: keys.length > 1,
                 position: 'top',
@@ -223,55 +284,9 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
         }
     };
 
-    // Custom plugin to draw vertical line on hover
-    const verticalLinePlugin: Plugin<'line'> = {
-        id: 'verticalLine',
-        afterDraw: (chart: Chart<'line'>) => {
-            const active = chart.tooltip?.getActiveElements();
-            if (active && active.length) {
-                const ctx = chart.ctx;
-                const x = active[0].element.x;
-                const topY = chart.scales.y.top;
-                const bottomY = chart.scales.y.bottom;
-
-                ctx.save();
-                ctx.beginPath();
-                ctx.moveTo(x, topY);
-                ctx.lineTo(x, bottomY);
-                ctx.lineWidth = 1;
-                ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)';
-                ctx.stroke();
-                ctx.restore();
-            }
-        }
-    };
-
-    // Very light horizontal band shading (85 / 70 / 60) behind score lines.
-    const bandShadingPlugin: Plugin<'line'> = {
-        id: 'scoreBands',
-        beforeDatasetsDraw: (chart: Chart<'line'>) => {
-            if (!isScoreChart) return;
-            const { ctx, chartArea, scales } = chart;
-            const y = scales.y;
-            if (!y || !chartArea) return;
-            ctx.save();
-            let upper = 100;
-            for (const band of BANDS) {
-                const top = y.getPixelForValue(upper);
-                const bottom = y.getPixelForValue(band.min);
-                ctx.fillStyle = withAlpha(isDark ? band.dark : band.light, 0.07);
-                ctx.fillRect(chartArea.left, top, chartArea.right - chartArea.left, bottom - top);
-                upper = band.min;
-            }
-            ctx.restore();
-        }
-    };
-
-    const summary = ariaLabel ?? `${title}: line chart of ${keys.map(k => k.split('.').pop()?.replace(/_/g, ' ')).join(', ')} over ${data.length} points`;
-
     return (
         <div className="w-full h-full min-h-[100px]" role="img" aria-label={summary}>
-            <Line data={chartData} options={options} plugins={[bandShadingPlugin, verticalLinePlugin]} />
+            <Line data={chartData} options={options} plugins={[scoreBandsPlugin, hoverLinePlugin]} />
         </div>
     );
 }

@@ -15,7 +15,8 @@ const dialogIsOpen = () => !!document.querySelector('[role="dialog"][data-state=
 
 /**
  * Global shortcuts: ←/→ ±1 day, Shift+←/→ ±7, T today, D date picker, E edit mode,
- * Esc close panel / exit edit, ? shortcut sheet, 1 Ring page, 2 AI Analyst.
+ * Esc close panel / exit edit, ? shortcut sheet, 1 Ring page, 2 AI Analyst, 3 Trends.
+ * The day shortcuts also work on the Trends view (its top bar keeps the day stepper).
  */
 export function useKeyboardShortcuts() {
     const {
@@ -38,11 +39,12 @@ export function useKeyboardShortcuts() {
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
             if (isTypingTarget(e.target)) return;
+            const hasDayStepper = activeView === 'dashboard' || activeView === 'trends';
 
             switch (e.key) {
                 case 'ArrowLeft':
                 case 'ArrowRight': {
-                    if (activeView !== 'dashboard' || isDatePickerOpen) return;
+                    if (!hasDayStepper || isDatePickerOpen) return;
                     e.preventDefault();
                     const step = (e.shiftKey ? 7 : 1) * (e.key === 'ArrowLeft' ? -1 : 1);
                     setSelectedDate(addDays(selectedDate, step));
@@ -50,13 +52,13 @@ export function useKeyboardShortcuts() {
                 }
                 case 't':
                 case 'T':
-                    if (activeView !== 'dashboard') return;
+                    if (!hasDayStepper) return;
                     e.preventDefault();
                     setSelectedDate(new Date());
                     return;
                 case 'd':
                 case 'D':
-                    if (activeView !== 'dashboard') return;
+                    if (!hasDayStepper) return;
                     e.preventDefault();
                     setDatePickerOpen(!isDatePickerOpen);
                     return;
@@ -87,6 +89,10 @@ export function useKeyboardShortcuts() {
                 case '2':
                     e.preventDefault();
                     setActiveView('chat-page');
+                    return;
+                case '3':
+                    e.preventDefault();
+                    setActiveView('trends');
                     return;
                 default:
                     return;

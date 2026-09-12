@@ -13,5 +13,6 @@ export const SHORTCUTS: readonly ShortcutRow[] = [
     { keys: ['Esc'], action: 'Close the side panel / exit edit mode' },
     { keys: ['1'], action: 'Ring page' },
     { keys: ['2'], action: 'AI Analyst' },
+    { keys: ['3'], action: 'Trends' },
     { keys: ['?'], action: 'Show this sheet' },
 ];

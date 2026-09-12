@@ -13,6 +13,8 @@ import { WidgetEditorPanel } from "@/components/dashboard/WidgetEditorPanel";
 import { ChatPanel } from "@/components/dashboard/ChatPanel";
 import { ChatPage } from "@/components/dashboard/ChatPage";
 import { RingPage } from "@/components/ring/RingPage";
+import { TrendsView } from "@/components/trends/TrendsView";
+import { TrendsRangeSelector } from "@/components/trends/TrendsRangeSelector";
 import { OnboardingEmptyState } from "@/components/dashboard/OnboardingEmptyState";
 import { ShortcutSheet } from "@/components/dashboard/ShortcutSheet";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
@@ -53,7 +55,9 @@ function DashboardApp() {
         deleteWidget,
         selectedDate,
         setSelectedDate,
-        data
+        data,
+        trends,
+        updateTrends,
     } = useDashboard();
     const { hasData, sync, inventory } = useAppStatus();
     const isDark = useIsDark();
@@ -118,8 +122,21 @@ function DashboardApp() {
         return null;
     };
 
+    const latestWithData = daysWithData.size > 0 ? [...daysWithData].sort().at(-1) : undefined;
+
     const renderMain = () => {
         if (activeView === 'ring') return <RingPage />;
+        if (activeView === 'trends') {
+            if (hasData === false) {
+                return (
+                    <OnboardingEmptyState
+                        onConnectRing={() => setActiveView('ring')}
+                        onImportZip={() => setActivePanel('data')}
+                    />
+                );
+            }
+            return <TrendsView latestDate={latestWithData} />;
+        }
         if (activeView === 'chat-page') {
             return (
                 <ChatPage
@@ -139,7 +156,6 @@ function DashboardApp() {
             );
         }
         const selectedKey = format(selectedDate, 'yyyy-MM-dd');
-        const latestWithData = daysWithData.size > 0 ? [...daysWithData].sort().at(-1) : undefined;
         const showNoDataBanner = !data.isLoading && daysWithData.size > 0 && !daysWithData.has(selectedKey);
 
         return (
@@ -205,7 +221,11 @@ function DashboardApp() {
                 activePanel={activePanel}
                 onChatPageSelect={() => setActiveView('chat-page')}
                 onRingPageSelect={() => setActiveView('ring')}
+                onTrendsPageSelect={() => setActiveView('trends')}
                 dataSyncHint={dataSyncHint}
+                headerExtra={activeView === 'trends' && hasData !== false ? (
+                    <TrendsRangeSelector value={trends.range} onChange={(range) => updateTrends({ range })} />
+                ) : undefined}
 
                 headerActions={
                     activeView === 'dashboard' && hasData !== false ? (

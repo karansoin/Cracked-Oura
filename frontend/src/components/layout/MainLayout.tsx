@@ -24,6 +24,8 @@ interface MainLayoutProps {
     onSettingsClick?: () => void;
     onDataSyncClick?: () => void;
     headerActions?: React.ReactNode;
+    /** Extra controls shown after the day stepper (e.g. the Trends range selector). */
+    headerExtra?: React.ReactNode;
     /** Days (yyyy-MM-dd) that have data; other days are dimmed in the calendar. */
     daysWithData?: ReadonlySet<string>;
 
@@ -41,6 +43,7 @@ interface MainLayoutProps {
     activePanel?: PanelType;
     onChatPageSelect?: () => void;
     onRingPageSelect?: () => void;
+    onTrendsPageSelect?: () => void;
     dataSyncHint?: string;
 }
 
@@ -57,6 +60,7 @@ export function MainLayout({
     onSettingsClick,
     onDataSyncClick,
     headerActions,
+    headerExtra,
     daysWithData,
     dashboards,
     activeDashboardId,
@@ -69,10 +73,15 @@ export function MainLayout({
     activePanel = 'none',
     onChatPageSelect,
     onRingPageSelect,
+    onTrendsPageSelect,
     dataSyncHint,
 }: MainLayoutProps) {
     const activeDashboardName = dashboards.find(d => d.id === activeDashboardId)?.name || "Dashboard";
-    const title = activeView === 'ring' ? 'Ring' : activeView === 'chat-page' ? 'AI Analyst' : activeDashboardName;
+    const title = activeView === 'ring' ? 'Ring'
+        : activeView === 'chat-page' ? 'AI Analyst'
+            : activeView === 'trends' ? 'Trends'
+                : activeDashboardName;
+    const showDayStepper = activeView === 'dashboard' || activeView === 'trends';
 
     const shiftDay = (delta: number) => {
         if (!onDateChange || !selectedDate) return;
@@ -102,6 +111,7 @@ export function MainLayout({
                 activePanel={activePanel}
                 onChatPageSelect={onChatPageSelect}
                 onRingPageSelect={onRingPageSelect}
+                onTrendsPageSelect={onTrendsPageSelect}
                 dataSyncHint={dataSyncHint}
             />
 
@@ -112,7 +122,7 @@ export function MainLayout({
                     <div className="flex items-center gap-4 min-w-0">
                         <h1 className="text-xl font-semibold truncate">{title}</h1>
 
-                        {activeView === 'dashboard' && (
+                        {showDayStepper && (
                             <>
                                 <div className="h-6 w-px bg-border shrink-0" />
 
@@ -181,6 +191,12 @@ export function MainLayout({
                                         <TooltipContent>Jump to today <kbd className="ml-1 font-mono">T</kbd></TooltipContent>
                                     </Tooltip>
                                 </div>
+                            </>
+                        )}
+                        {headerExtra && (
+                            <>
+                                <div className="h-6 w-px bg-border shrink-0" />
+                                {headerExtra}
                             </>
                         )}
                     </div>

@@ -16,6 +16,7 @@ import {
     Bluetooth,
     Database,
     RotateCcw,
+    TrendingUp,
 } from "lucide-react";
 import {
     DropdownMenu,
@@ -41,6 +42,7 @@ interface AppSidebarProps {
     onDataSyncClick?: () => void;
     onChatPageSelect?: () => void;
     onRingPageSelect?: () => void;
+    onTrendsPageSelect?: () => void;
     activeView?: ViewType;
     activePanel?: PanelType;
     /** Short line under "Data & Sync", e.g. "Up to date · 2 h ago". */
@@ -60,6 +62,7 @@ export function AppSidebar({
     onDataSyncClick,
     onChatPageSelect,
     onRingPageSelect,
+    onTrendsPageSelect,
     activeView = 'dashboard',
     activePanel = 'none',
     dataSyncHint,
@@ -159,6 +162,13 @@ export function AppSidebar({
                         active: activeView === 'chat-page',
                         onClick: onChatPageSelect,
                         shortcut: '2',
+                    })}
+                    {navButton({
+                        label: 'Trends',
+                        icon: <TrendingUp className="h-5 w-5 shrink-0" aria-hidden="true" />,
+                        active: activeView === 'trends',
+                        onClick: onTrendsPageSelect,
+                        shortcut: '3',
                     })}
                 </div>
 

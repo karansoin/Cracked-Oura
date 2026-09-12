@@ -1,7 +1,24 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Settings, Trash2, GripHorizontal } from "lucide-react";
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Settings, Trash2, GripHorizontal, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+export interface WidgetMenuItem {
+    id: string;
+    label: string;
+    icon?: React.ReactNode;
+    onSelect: () => void;
+    disabled?: boolean;
+    /** Marks a toggle that is currently on (rendered with a check state). */
+    checked?: boolean;
+}
 
 interface WidgetCardProps {
     title: string;
@@ -14,6 +31,8 @@ interface WidgetCardProps {
     headerContent?: React.ReactNode;
     /** One-row-tall widgets: title and content share a single line. */
     compact?: boolean;
+    /** Overflow ("...") menu entries; the menu is hidden when empty. */
+    menuItems?: WidgetMenuItem[];
 }
 
 export function WidgetCard({
@@ -25,8 +44,43 @@ export function WidgetCard({
     onDelete,
     className,
     headerContent,
-    compact = false
+    compact = false,
+    menuItems,
 }: WidgetCardProps) {
+    const overflowMenu = menuItems && menuItems.length > 0 && (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                    aria-label={`${title} options`}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <MoreHorizontal className="h-4 w-4" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[10rem]">
+                {menuItems.map(item => item.checked === undefined ? (
+                    <DropdownMenuItem key={item.id} inset disabled={item.disabled} onSelect={item.onSelect}>
+                        {item.icon}
+                        {item.label}
+                    </DropdownMenuItem>
+                ) : (
+                    <DropdownMenuCheckboxItem
+                        key={item.id}
+                        disabled={item.disabled}
+                        checked={item.checked}
+                        onCheckedChange={item.onSelect}
+                    >
+                        {item.icon}
+                        {item.label}
+                    </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+
     const editControls = isEditing && (
         <div className="flex items-center gap-1">
             <Button
@@ -89,6 +143,7 @@ export function WidgetCard({
                 <div className="flex items-center gap-2 relative z-[60]">
                     {headerContent}
                     {editControls}
+                    {overflowMenu}
                 </div>
             </CardHeader>
             <CardContent className="flex-1 min-h-0 p-4 pt-0 relative z-[1]">
