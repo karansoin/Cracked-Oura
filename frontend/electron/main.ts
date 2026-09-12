@@ -102,6 +102,10 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 800,
+        // The layout is designed for 1180 px and up (sidebar + a 400 px side panel + content);
+        // below that widgets and the header start to collide.
+        minWidth: 1180,
+        minHeight: 720,
         webPreferences: {
             // The renderer is a plain web app: it never touches Node APIs, so run it
             // fully isolated. (Verified: frontend/src has no require/process/window.electron.)
