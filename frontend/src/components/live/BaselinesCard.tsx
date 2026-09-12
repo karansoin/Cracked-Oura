@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useIsDark } from '@/components/theme-provider';
@@ -21,6 +21,7 @@ function Strip({ name, sig }: { name: string; sig: BaselineSignal }) {
     const points = useMemo<TracePoint[]>(() => sig.values.map(([, v], i) => ({ t: i, v: v ?? null })), [sig.values]);
     const alarm = !!sig.alarm;
     const color = alarm ? (isDark ? '#F07F3C' : '#D55E00') : (isDark ? '#5AA9E6' : '#0072B2');
+    const formatX = useCallback((t: number) => { const d = sig.values[Math.round(t)]?.[0]; return d ? d.slice(5).replace('-', '/') : ''; }, [sig.values]);
     const guides = sig.mean_ref != null && sig.sd_ref != null ? [{ y: sig.mean_ref, label: 'usual' }, { y: sig.mean_ref + sig.sd_ref }, { y: sig.mean_ref - sig.sd_ref }] : [];
     const z = sig.z_recent;
     return (
@@ -37,7 +38,7 @@ function Strip({ name, sig }: { name: string; sig: BaselineSignal }) {
                     </>
                 )}
             </div>
-            {!sig.insufficient && <div className="mt-1"><TraceCanvas points={points} color={color} height={64} guides={guides} ariaLabel={`${meta.label} over the last ${points.length} nights`} /></div>}
+            {!sig.insufficient && <div className="mt-1"><TraceCanvas points={points} color={color} height={64} guides={guides} formatX={formatX} ariaLabel={`${meta.label} over the last ${points.length} nights`} /></div>}
         </div>
     );
 }

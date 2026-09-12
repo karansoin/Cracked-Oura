@@ -21,13 +21,15 @@ interface TraceCanvasProps {
     ariaLabel: string;
     fill?: boolean;
     className?: string;
+    /** Custom x tick labels (e.g. dates when t is a day index); ticks are then spread evenly. */
+    formatX?: (t: number) => string;
 }
 
 /**
  * Lightweight streaming line chart. A plain canvas (no Chart.js) so 50 Hz data
  * redraws in well under a millisecond and never allocates per frame.
  */
-export function TraceCanvas({ points, windowS, color, yMin, yMax, guides = [], markers = [], height = 120, unit, ariaLabel, fill = false, className }: TraceCanvasProps) {
+export function TraceCanvas({ points, windowS, color, yMin, yMax, guides = [], markers = [], height = 120, unit, ariaLabel, fill = false, className, formatX }: TraceCanvasProps) {
     const ref = useRef<HTMLCanvasElement>(null);
     const isDark = useIsDark();
 
@@ -85,13 +87,13 @@ export function TraceCanvas({ points, windowS, color, yMin, yMax, guides = [], m
             ctx.fillText(formatTick(v, hi - lo), padL - 4, yy);
         }
         const span = tMax - tMin;
-        const step = span <= 15 ? 5 : span <= 60 ? 10 : span <= 300 ? 60 : 120;
+        const step = formatX ? Math.max(1, Math.ceil(span / 4)) : span <= 15 ? 5 : span <= 60 ? 10 : span <= 300 ? 60 : 120;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         for (let t = Math.ceil(tMin / step) * step; t <= tMax; t += step) {
             const xx = Math.round(x(t)) + 0.5;
             ctx.beginPath(); ctx.moveTo(xx, padT); ctx.lineTo(xx, padT + h); ctx.stroke();
-            ctx.fillText(formatT(t), xx, padT + h + 4);
+            ctx.fillText(formatX ? formatX(t) : formatT(t), xx, padT + h + 4);
         }
         if (unit) {
             ctx.textAlign = 'left';
@@ -144,7 +146,7 @@ export function TraceCanvas({ points, windowS, color, yMin, yMax, guides = [], m
             ctx.textBaseline = 'middle';
             ctx.fillText('Waiting for data…', padL + w / 2, padT + h / 2);
         }
-    }, [points, windowS, color, yMin, yMax, guides, markers, height, unit, isDark, fill]);
+    }, [points, windowS, color, yMin, yMax, guides, markers, height, unit, isDark, fill, formatX]);
 
     return <canvas ref={ref} role="img" aria-label={ariaLabel} className={className} />;
 }
