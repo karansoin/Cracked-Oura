@@ -9,7 +9,14 @@ for pkg in ("uvicorn", "bleak", "cryptography", "langchain", "langchain_core", "
         hidden += collect_submodules(pkg)
     except Exception:
         pass
-hidden += ["backend.src.ble.manager", "backend.src.api.ble_routes", "multipart", "python_multipart"]
+for pkg in ("backend.src.ble", "backend.src.analysis", "backend.src.api", "numpy"):
+    try:
+        hidden += collect_submodules(pkg)
+    except Exception:
+        pass
+hidden += ["backend.src.ble.manager", "backend.src.ble.live", "backend.src.ble.simulator", "backend.src.api.ble_routes",
+           "backend.src.api.live_routes", "backend.src.api.insights_routes", "backend.src.analysis.session_metrics",
+           "multipart", "python_multipart"]
 
 datas = [('src', 'backend/src')]
 for pkg in ("langchain", "langchain_core", "langchain_community", "langchain_ollama", "langchain_openai", "langgraph", "bleak"):
