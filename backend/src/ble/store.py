@@ -183,6 +183,7 @@ def derive_sleep(db: Session, serial: str) -> int:
     hrv_ev = _events(db, serial, (0x5D,))
     ibi_ev = _events(db, serial, (0x60, 0x80))
     temp_ev = _events(db, serial, (0x75, 0x46))
+    spo2_ev = _events(db, serial, (0x6F,))
     st = db.get(RingState, serial)
     anchor = load_anchor(st) if st else TimeAnchor()
 
@@ -234,6 +235,11 @@ def derive_sleep(db: Session, serial: str) -> int:
             if t:
                 temps.append(t[0])
 
+        spo2_vals: List[int] = []
+        for ev in _series_in(spo2_ev, s_unix, e_unix):
+            spo2_vals.extend((ev.decoded or {}).get("spo2_percent") or [])
+        spo2_avg = round(statistics.mean(spo2_vals), 1) if len(spo2_vals) >= 30 else None
+
         total = (counts["deep"] + counts["light"] + counts["rem"]) * 300 if phases else int(e_unix - s_unix)
         awake = counts["awake"] * 300
         tib = int(e_unix - s_unix)
@@ -262,7 +268,7 @@ def derive_sleep(db: Session, serial: str) -> int:
                 "hrv_data": hrv_series or None,
                 "sleep_phase_5_min": phase_series or None,
                 "sleep_algorithm_version": "ring-ble",
-                "readiness": {"skin_temp_avg_c": round(statistics.mean(temps), 2)} if temps else None,
+                "readiness": {k: v for k, v in (("skin_temp_avg_c", round(statistics.mean(temps), 2) if temps else None), ("spo2_avg", spo2_avg), ("spo2_samples", len(spo2_vals) or None)) if v is not None} or None,
                 "_hypno": hypno,
             }
         )
@@ -289,11 +295,10 @@ def derive_sleep(db: Session, serial: str) -> int:
                 "status": "ring",
                 "recommendation": None,
                 "optimal_bedtime": None,
-                "average_spo2": None,
+                "average_spo2": (main.get("readiness") or {}).get("spo2_avg"),
                 "breathing_disturbance_index": None,
             }
         )
-        _ = main
     # Replace previous ring-derived sessions to avoid stale duplicates
     db.execute(delete(SleepSession).where(SleepSession.id.like(f"ring-{serial}-%")))
     db.commit()

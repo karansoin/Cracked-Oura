@@ -48,6 +48,9 @@ def test_store_and_derive_sleep_night():
     # daytime IBI at 75 bpm (800 ms) after waking
     for i in range(10):
         events.append(ibi_event(e_ring + 6000 + i * 600, 800))
+    # SpO2 at 1 Hz during sleep: 60 samples of 96%, header byte then samples
+    for i in range(5):
+        events.append(RingEvent(0x6F, s_ring + 60_000 + i * 120, bytes([0x68] + [96] * 12)))
     # skin temperature during sleep 35.9 C, and during day 33.0
     events.append(RingEvent(0x75, s_ring + 36_000, struct.pack("<h", 3590)))
     events.append(RingEvent(0x46, e_ring + 36_000, struct.pack("<hhh", 3300, 3100, -32768)))
@@ -73,7 +76,9 @@ def test_store_and_derive_sleep_night():
     assert s.efficiency == 75
     assert s.average_heart_rate == 52.0 and s.average_hrv == 60
     assert len(s.hrv_data) == 16 * 6 and len(s.sleep_phase_5_min) == 96
-    assert db.scalars(select(Sleep)).one().score is None
+    daily = db.scalars(select(Sleep)).one()
+    assert daily.score is None and daily.average_spo2 == 96.0
+    assert s.readiness["spo2_avg"] == 96.0 and s.readiness["spo2_samples"] == 60
 
     hr = db.scalars(select(HeartRate)).all()
     assert all(h.bpm == 75 for h in hr)
