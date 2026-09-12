@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from ..ble.manager import ring_manager
+from ..ble.supervisor import ring_manager
 from ..database import SessionLocal
 from ..models import RingEvent, RingState
 

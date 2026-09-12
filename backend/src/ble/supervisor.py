@@ -1,0 +1,261 @@
+"""Supervises BLE worker processes and mirrors their state for the API.
+
+Public surface matches what ``ble_routes`` needs from the in-process
+``RingManager`` (status, start_*, cancel, listen/unlisten, paired_serials,
+forget, shutdown). Each operation runs in a child process (see ``worker.py``);
+its JSON-line events are relayed to SSE listeners and folded into ``status()``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import signal
+import sys
+import time
+from collections import deque
+from datetime import datetime
+from typing import Any, Deque, Dict, List, Optional
+
+from ..config import config_manager
+from ..paths import get_user_data_dir
+
+logger = logging.getLogger("RingSupervisor")
+
+PERMISSION_HINT = (
+    "Bluetooth is not available to this app. On macOS open System Settings → Privacy & Security → Bluetooth and "
+    "allow Cracked Oura (when running from a terminal, allow the terminal app), then try again."
+)
+
+
+def _worker_argv(cmd: Dict[str, Any]) -> List[str]:
+    payload = json.dumps(cmd)
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--ble-worker", payload]
+    return [sys.executable, "-m", "backend.src.ble.worker", payload]
+
+
+def _repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+
+class RingSupervisor:
+    def __init__(self) -> None:
+        self.state = "idle"
+        self.message = ""
+        self.error: Optional[str] = None
+        self.progress: Optional[Dict[str, Any]] = None
+        self.devices: List[Dict[str, Any]] = []
+        self.ring: Dict[str, Any] = {}
+        self.log: Deque[Dict[str, Any]] = deque(maxlen=200)
+        self.live_samples: Deque[Dict[str, Any]] = deque(maxlen=600)
+        self.last_scan_at: Optional[float] = None
+        self.bluetooth_ok: Optional[bool] = None
+        self._proc: Optional[asyncio.subprocess.Process] = None
+        self._task: Optional[asyncio.Task] = None
+        self._listeners: List[asyncio.Queue] = []
+        self._current_op: Optional[str] = None
+
+    # ------------------------------------------------------------ events
+    def _emit(self, ev: Dict[str, Any]) -> None:
+        for q in list(self._listeners):
+            try:
+                q.put_nowait(ev)
+            except asyncio.QueueFull:
+                pass
+
+    def listen(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=1000)
+        self._listeners.append(q)
+        return q
+
+    def unlisten(self, q: asyncio.Queue) -> None:
+        try:
+            self._listeners.remove(q)
+        except ValueError:
+            pass
+
+    def _log(self, level: str, msg: str) -> None:
+        entry = {"ts": datetime.now().isoformat(timespec="seconds"), "level": level, "msg": msg}
+        self.log.append(entry)
+        self._emit({"type": "log", **entry})
+
+    def _apply(self, ev: Dict[str, Any]) -> None:
+        t = ev.get("type")
+        if t == "state":
+            self.state = ev.get("state", self.state)
+            self.message = ev.get("message", "")
+            self.progress = ev.get("progress")
+            if self.state == "error":
+                self.error = self.message
+            else:
+                self.error = None
+        elif t == "log":
+            self.log.append({k: ev.get(k) for k in ("ts", "level", "msg")})
+        elif t == "hr":
+            self.live_samples.append({k: ev.get(k) for k in ("t", "bpm", "ibi_ms")})
+        elif t == "result":
+            if ev.get("devices") is not None and self._current_op == "scan":
+                self.devices = ev["devices"]
+                self.last_scan_at = time.time()
+            if ev.get("ring"):
+                self.ring = ev["ring"]
+            if ev.get("bluetooth_ok") is not None:
+                self.bluetooth_ok = ev["bluetooth_ok"]
+            self.state = ev.get("state", "idle")
+            self.message = ev.get("message", "")
+            self.error = ev.get("error")
+            self.progress = None
+        self._emit(ev)
+
+    # ------------------------------------------------------------ status
+    def status(self) -> Dict[str, Any]:
+        cfg = config_manager.get_config()
+        return {
+            "state": self.state,
+            "message": self.message,
+            "error": self.error,
+            "progress": self.progress,
+            "busy": self.busy,
+            "devices": self.devices,
+            "ring": self.ring,
+            "paired_serials": self.paired_serials(),
+            "preferred_address": cfg.get("ble_ring_address"),
+            "auto_sync": bool(cfg.get("ble_auto_sync", False)),
+            "last_scan_at": self.last_scan_at,
+            "bluetooth_ok": self.bluetooth_ok,
+            "log": list(self.log)[-30:],
+            "live_samples": list(self.live_samples)[-120:],
+            "connected": self.busy and self.state in ("connecting", "pairing", "authenticating", "syncing", "live"),
+        }
+
+    @property
+    def busy(self) -> bool:
+        return bool(self._task and not self._task.done())
+
+    # -------------------------------------------------------------- keys
+    def paired_serials(self) -> List[str]:
+        return sorted(f[5:-4] for f in os.listdir(get_user_data_dir()) if f.startswith("ring-") and f.endswith(".key"))
+
+    def forget(self, serial: str) -> bool:
+        p = os.path.join(get_user_data_dir(), f"ring-{serial}.key")
+        if os.path.exists(p):
+            os.remove(p)
+            self._log("info", f"Forgot key for ring {serial}")
+            return True
+        return False
+
+    # ------------------------------------------------------------ control
+    def _start(self, cmd: Dict[str, Any]) -> bool:
+        if self.busy:
+            return False
+        self._current_op = cmd["op"]
+        self.error = None
+        self.state = {"scan": "scanning", "live": "connecting"}.get(cmd["op"], "connecting")
+        self.message = "Starting…"
+        self.progress = None
+        if cmd["op"] == "live":
+            self.live_samples.clear()
+        self._task = asyncio.create_task(self._run(cmd), name=f"ble-{cmd['op']}")
+        return True
+
+    async def _run(self, cmd: Dict[str, Any]) -> None:
+        env = dict(os.environ)
+        env["PYTHONUNBUFFERED"] = "1"
+        try:
+            self._proc = await asyncio.create_subprocess_exec(
+                *_worker_argv(cmd),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=None if getattr(sys, "frozen", False) else _repo_root(),
+                env=env,
+            )
+        except Exception as e:  # noqa: BLE001
+            self._finish_error(f"Could not start the Bluetooth worker: {e}")
+            return
+        got_result = False
+        stderr_tail: Deque[str] = deque(maxlen=20)
+
+        async def drain_stderr():
+            assert self._proc and self._proc.stderr
+            async for line in self._proc.stderr:
+                stderr_tail.append(line.decode("utf-8", "replace").rstrip())
+
+        err_task = asyncio.create_task(drain_stderr())
+        try:
+            assert self._proc.stdout
+            async for raw in self._proc.stdout:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                self._apply(ev)
+                if ev.get("type") == "result":
+                    got_result = True
+            rc = await self._proc.wait()
+        except asyncio.CancelledError:
+            self._kill()
+            self.state, self.message, self.progress = "idle", "Cancelled", None
+            self._emit({"type": "state", "state": "idle", "message": "Cancelled"})
+            raise
+        finally:
+            err_task.cancel()
+        if not got_result:
+            if rc is not None and rc < 0 and -rc in (signal.SIGABRT, signal.SIGKILL, signal.SIGTRAP):
+                self.bluetooth_ok = False
+                self._finish_error(PERMISSION_HINT, state="unavailable")
+            else:
+                tail = " | ".join(list(stderr_tail)[-3:])
+                self._finish_error(f"The Bluetooth worker exited unexpectedly (code {rc}). {tail}".strip())
+        self._proc = None
+
+    def _finish_error(self, message: str, state: str = "error") -> None:
+        self.state, self.message, self.error, self.progress = state, message, message, None
+        self._log("error", message)
+        self._emit({"type": "state", "state": state, "message": message})
+
+    def _kill(self) -> None:
+        if self._proc and self._proc.returncode is None:
+            try:
+                self._proc.terminate()
+            except ProcessLookupError:
+                pass
+
+    async def cancel(self) -> bool:
+        if not self.busy:
+            return False
+        assert self._task
+        self._task.cancel()
+        try:
+            await self._task
+        except (asyncio.CancelledError, Exception):
+            pass
+        return True
+
+    async def shutdown(self) -> None:
+        await self.cancel()
+        self._kill()
+
+    # --------------------------------------------------------- operations
+    def start_scan(self, duration: float = 12.0) -> bool:
+        return self._start({"op": "scan", "duration": duration})
+
+    def start_probe(self, address: Optional[str]) -> bool:
+        return self._start({"op": "probe", "address": address})
+
+    def start_pair(self, address: Optional[str]) -> bool:
+        return self._start({"op": "pair", "address": address})
+
+    def start_sync(self, address: Optional[str] = None, full: bool = False) -> bool:
+        return self._start({"op": "sync", "address": address, "full": full})
+
+    def start_live(self, address: Optional[str], duration: float = 60.0) -> bool:
+        return self._start({"op": "live", "address": address, "duration": duration})
+
+
+ring_manager = RingSupervisor()

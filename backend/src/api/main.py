@@ -20,6 +20,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# The Bluetooth worker runs as a child process of this same executable so a
+# CoreBluetooth permission failure can never take the API down.
+if len(sys.argv) > 1 and sys.argv[1] == "--ble-worker":
+    from backend.src.ble.worker import main as _ble_worker_main
+
+    raise SystemExit(_ble_worker_main(sys.argv[1:]))
+
 from backend.src.paths import get_log_dir
 
 # --------------------------------------------------------------------- logging
@@ -55,7 +62,7 @@ async def lifespan(app: FastAPI):
     yield
     if ble_router is not None:
         try:
-            from backend.src.ble.manager import ring_manager
+            from backend.src.ble.supervisor import ring_manager
 
             await ring_manager.shutdown()
         except Exception:  # pragma: no cover
