@@ -20,6 +20,17 @@ no login, no cloud API, no telemetry.
 2. **An Oura data-export ZIP you already have** — drop it on the Data & Sync
    panel to import full history including Oura's scores.
 
+**Live sessions** (Live page) stream the ring's accelerometer and beats over
+Bluetooth for guided recordings the phone app does not offer: a steadiness test
+(rest and postural hand oscillation by frequency band), workout recording with
+activity timeline, cadence, reps, heart-rate zones, recovery and training load,
+paced breathing with resonance scoring, and an orthostatic stand test. The Trends
+page adds overnight baselines: each night's resting HR, HRV, skin-temperature
+deviation, breathing rate and sleep compared with your own trailing 60 nights,
+with change-point alerts and a fully documented readiness formula. Every number
+shows the formula behind it; nothing is a diagnosis. All of it can be tried
+without a ring through the built-in simulator.
+
 ## Install (macOS)
 
 1. Download the `.dmg` from the Releases page and drag the app to Applications.

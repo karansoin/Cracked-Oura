@@ -210,10 +210,14 @@ Data enters only from the ring over Bluetooth or from an export ZIP already on d
 | AI analyst | Pointed at an empty DB, no history, event-loop blocking | Correct DB opened read-only, tool-calling agent, conversation history, Ollama or OpenAI-compatible, connection test |
 | Frontend | Login/OTP UI wired to a status model that never matched (F1–F15) | Ring page, Data & Sync, Settings, onboarding, default Overview, hypnogram + contributors widgets, score bands, shortcuts, toasts, skeletons; timezone/duration/intraday bugs fixed; 0 ESLint errors |
 | Electron | `nodeIntegration`, no readiness wait, activate crash (E1–E5) | contextIsolation + sandbox, backend health wait, port-conflict logging, process-group kill, Bluetooth usage descriptions in the bundle |
-| Tests | none | 57 backend tests (protocol vectors, client, store/derivation, manager with simulated ring, supervisor, ingestion) |
+| Tests | none | 77 backend tests (protocol vectors incl. captured live-beat frames, client, store/derivation, manager with simulated ring, supervisor incl. hung/dying worker, ingestion, signal analysis, live sessions end-to-end through the worker subprocess, baselines route) |
+| Live streaming | none | `ble/live.py` sessions (accelerometer 0x33 + daytime-HR pushes with skin temperature; event-log fallback for firmware that never pushes), `ble/simulator.py` scenarios, `analysis/` (Welch PSD, tremor bands, gait/activity, HRV with Kubios-style correction, breathing, stress index, orthostatic, training load, CUSUM baselines), `/api/live/*` and `/api/insights/baselines`, Live page and Trends baselines card |
 
 Known limits: the ring does not emit Oura's 0–100 scores (computed in the phone
 app), so ring-synced days show measured values but no score; SpO2 raw events are
 stored but not yet summarised; pairing requires a factory-reset ring
 (see `docs/BLE.md`); a backend started from a terminal without Bluetooth
-permission reports "unavailable" instead of scanning.
+permission reports "unavailable" instead of scanning. Live sessions were
+verified against the simulator only; on a real Ring 4/5 the beat-push path vs
+the event-log fallback, the accelerometer counts-per-g and the skin-temperature
+field still need confirming (see `docs/BLE.md`).
