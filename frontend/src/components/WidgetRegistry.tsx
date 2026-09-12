@@ -79,14 +79,13 @@ export const WidgetRegistry = ({ widget, data, date, onUpdate, compact = false, 
         case 'score': {
             const key = widget.config.dataKey || '';
             const raw = resolveData(key);
-            const scoreLabel = key || 'Score';
             // Distinguish "no row for this day" from "row exists but the ring did not compute a score".
             const parent = key.includes('.') ? resolveData(key.slice(0, key.lastIndexOf('.'))) : undefined;
             const emptyHint = parent === null || parent === undefined ? 'No data for this day' : 'No score (ring data)';
             return (
                 <ScoreGaugeCanvas
                     score={isFiniteNumber(raw) ? raw : null}
-                    title={scoreLabel}
+                    title={widget.title}
                     color={widget.config.color}
                     emptyHint={emptyHint}
                 />

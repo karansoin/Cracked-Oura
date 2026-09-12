@@ -14,7 +14,6 @@ import { ChatPanel } from "@/components/dashboard/ChatPanel";
 import { ChatPage } from "@/components/dashboard/ChatPage";
 import { RingPage } from "@/components/ring/RingPage";
 import { TrendsView } from "@/components/trends/TrendsView";
-import { TrendsRangeSelector } from "@/components/trends/TrendsRangeSelector";
 import { OnboardingEmptyState } from "@/components/dashboard/OnboardingEmptyState";
 import { ShortcutSheet } from "@/components/dashboard/ShortcutSheet";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
@@ -56,8 +55,6 @@ function DashboardApp() {
         selectedDate,
         setSelectedDate,
         data,
-        trends,
-        updateTrends,
     } = useDashboard();
     const { hasData, sync, inventory } = useAppStatus();
     const isDark = useIsDark();
@@ -223,9 +220,6 @@ function DashboardApp() {
                 onRingPageSelect={() => setActiveView('ring')}
                 onTrendsPageSelect={() => setActiveView('trends')}
                 dataSyncHint={dataSyncHint}
-                headerExtra={activeView === 'trends' && hasData !== false ? (
-                    <TrendsRangeSelector value={trends.range} onChange={(range) => updateTrends({ range })} />
-                ) : undefined}
 
                 headerActions={
                     activeView === 'dashboard' && hasData !== false ? (

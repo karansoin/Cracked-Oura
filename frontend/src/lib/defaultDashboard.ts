@@ -35,20 +35,20 @@ const TEMPLATE: TemplateWidget[] = [
     { id: '1', type: 'score', title: 'Sleep', config: { dataKey: 'sleep.score' }, layout: { x: 0, y: 0, w: 3, h: 3 } },
     { id: '2', type: 'score', title: 'Readiness', config: { dataKey: 'readiness.score' }, layout: { x: 3, y: 0, w: 3, h: 3 } },
     { id: '3', type: 'score', title: 'Activity', config: { dataKey: 'activity.score' }, layout: { x: 6, y: 0, w: 3, h: 3 } },
-    { id: '4', type: 'metric', title: 'Temperature deviation', config: { dataKey: 'readiness.temperature_deviation' }, layout: { x: 9, y: 0, w: 3, h: 1 } },
+    { id: '4', type: 'metric', title: 'Temp. deviation', config: { dataKey: 'readiness.temperature_deviation' }, layout: { x: 9, y: 0, w: 3, h: 1 } },
     { id: '5', type: 'metric', title: 'Lowest heart rate', config: { dataKey: 'sleep_session.lowest_heart_rate', unit: 'bpm' }, layout: { x: 9, y: 1, w: 3, h: 1 } },
     { id: '6', type: 'metric', title: 'Average HRV', config: { dataKey: 'sleep_session.average_hrv', unit: 'ms' }, layout: { x: 9, y: 2, w: 3, h: 1 } },
-    { id: '7', type: 'hypnogram', title: 'Last night', config: { dataKey: 'sleep_session.sleep_phase_5_min' }, layout: { x: 0, y: 3, w: 8, h: 4 } },
-    { id: '8', type: 'contributors', title: 'Sleep contributors', config: { dataKey: 'sleep.contributors' }, layout: { x: 8, y: 3, w: 4, h: 4 } },
+    { id: '7', type: 'hypnogram', title: 'Last night', config: { dataKey: 'sleep_session.sleep_phase_5_min' }, layout: { x: 0, y: 3, w: 8, h: 6 } },
+    { id: '8', type: 'contributors', title: 'Sleep contributors', config: { dataKey: 'sleep.contributors' }, layout: { x: 8, y: 3, w: 4, h: 6 } },
     {
         id: '9', type: 'table', title: 'Sleep stats',
         config: { dataKey: SLEEP_STATS_KEYS[0], dataKeys: SLEEP_STATS_KEYS, dateRange: { type: 'selected_day' } },
-        layout: { x: 8, y: 7, w: 4, h: 4 },
+        layout: { x: 8, y: 9, w: 4, h: 5 },
     },
     {
         id: '10', type: 'trend', title: 'Heart rate during sleep',
         config: { dataKey: 'sleep_session.hr_data', dataKeys: ['sleep_session.hr_data'], color: '#D55E00', dateRange: { type: 'selected_day' } },
-        layout: { x: 0, y: 7, w: 8, h: 4 },
+        layout: { x: 0, y: 9, w: 8, h: 5 },
     },
     {
         id: '11', type: 'trend', title: 'Scores, 30 days',
@@ -58,7 +58,7 @@ const TEMPLATE: TemplateWidget[] = [
             color: '#0072B2',
             dateRange: { type: 'relative', value: 30, unit: 'days', anchor: 'selected_date' },
         },
-        layout: { x: 0, y: 11, w: 12, h: 4 },
+        layout: { x: 0, y: 14, w: 12, h: 4 },
     },
     {
         id: '12', type: 'trend', title: 'Resting HR & HRV, 90 days',
@@ -69,7 +69,7 @@ const TEMPLATE: TemplateWidget[] = [
             showPoints: true,
             dateRange: { type: 'relative', value: 90, unit: 'days', anchor: 'selected_date' },
         },
-        layout: { x: 0, y: 15, w: 6, h: 3 },
+        layout: { x: 0, y: 18, w: 6, h: 3 },
     },
     {
         id: '13', type: 'bar', title: 'Temperature deviation, 90 days',
@@ -79,12 +79,12 @@ const TEMPLATE: TemplateWidget[] = [
             color: '#E69F00',
             dateRange: { type: 'relative', value: 90, unit: 'days', anchor: 'selected_date' },
         },
-        layout: { x: 6, y: 15, w: 6, h: 3 },
+        layout: { x: 6, y: 18, w: 6, h: 3 },
     },
     {
         id: '14', type: 'trend', title: 'Activity (MET) today',
         config: { dataKey: 'activity.met', dataKeys: ['activity.met'], color: '#009E73', dateRange: { type: 'selected_day' } },
-        layout: { x: 0, y: 18, w: 12, h: 3 },
+        layout: { x: 0, y: 21, w: 12, h: 3 },
     },
 ];
 

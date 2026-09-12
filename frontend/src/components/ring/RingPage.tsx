@@ -35,6 +35,7 @@ import { api, type BleDevice, type BleState, type PairedRing } from '@/lib/api';
 import { formatBytes, formatCount, formatElapsed, formatRelative, formatRelativeUnix } from '@/lib/format';
 import { CHART_NEUTRAL, withAlpha } from '@/lib/bands';
 import { cn } from '@/lib/utils';
+import { useElementWidth } from '@/hooks/useElementWidth';
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip);
 
@@ -126,6 +127,8 @@ function LiveHeartRateChart({ samples }: { samples: Array<{ t: number; bpm: numb
 
 export function RingPage() {
     const { ble, logLines, liveSamples, clearLiveSamples, refreshBle, refreshInventory, backendOk } = useAppStatus();
+    const [pageRef, pageWidth] = useElementWidth<HTMLDivElement>();
+    const twoCol = pageWidth === 0 || pageWidth >= 860;
     const [rings, setRings] = useState<PairedRing[]>([]);
     const [ringsError, setRingsError] = useState<string | null>(null);
     const [pending, setPending] = useState<string | null>(null);
@@ -194,7 +197,7 @@ export function RingPage() {
     const showLive = state === 'live' || liveSamples.length > 0;
 
     return (
-        <div className="max-w-5xl mx-auto flex flex-col gap-6">
+        <div ref={pageRef} className="max-w-5xl mx-auto flex flex-col gap-6">
             {/* (a) Status card */}
             <Card>
                 <CardHeader className="pb-3">
@@ -244,7 +247,7 @@ export function RingPage() {
                 </Alert>
             )}
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className={cn("grid gap-6", twoCol && "grid-cols-2")}>
                 {/* (b) Find your ring */}
                 <Card>
                     <CardHeader className="pb-3">
@@ -349,7 +352,7 @@ export function RingPage() {
                             No paired rings yet. Scan above and click Pair on your ring.
                         </div>
                     )}
-                    <ul className="grid gap-3 md:grid-cols-2" role="list">
+                    <ul className={cn("grid gap-3", pageWidth >= 640 && "grid-cols-2")} role="list">
                         {rings.map(r => (
                             <li key={r.serial} className="rounded-lg border p-4 flex flex-col gap-3">
                                 <div className="flex items-start justify-between gap-2">

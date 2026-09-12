@@ -38,7 +38,7 @@ export function ContributorsWidget({ contributors, title, emptyTitle = 'No score
 
     return (
         <ScrollArea className="h-full -mr-3 pr-3">
-            <ul className="flex flex-col gap-2 py-1" role="list" aria-label={`${title ?? 'Contributors'}: ${summary}`}>
+            <ul className="flex flex-col gap-1.5 py-0.5" role="list" aria-label={`${title ?? 'Contributors'}: ${summary}`}>
                 {rows.map(({ key, label, value }) => {
                     const band = getBand(value);
                     const color = bandColor(band, isDark);
@@ -58,7 +58,7 @@ export function ContributorsWidget({ contributors, title, emptyTitle = 'No score
                                     )}
                                 </span>
                             </div>
-                            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden" aria-hidden="true">
+                            <div className="h-1 w-full rounded-full bg-muted overflow-hidden" aria-hidden="true">
                                 <div className="h-full rounded-full transition-[width]" style={{ width: `${pct}%`, backgroundColor: color }} />
                             </div>
                         </li>

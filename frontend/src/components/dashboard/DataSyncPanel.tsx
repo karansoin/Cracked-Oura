@@ -1,3 +1,4 @@
+import { format, isValid, parseISO } from 'date-fns';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
@@ -61,6 +62,12 @@ function summaryRows(summary: Record<string, unknown> | null | undefined): Array
     }
     return rows;
 }
+
+const shortDay = (iso: string | null | undefined): string => {
+    if (!iso) return '—';
+    const d = parseISO(iso);
+    return isValid(d) ? format(d, 'd MMM yy') : '—';
+};
 
 export function DataSyncPanel({ onClose }: DataSyncPanelProps) {
     const { sync, inventory, refreshInventory, refreshSync, ble } = useAppStatus();
@@ -221,8 +228,7 @@ export function DataSyncPanel({ onClose }: DataSyncPanelProps) {
                                     <TableRow>
                                         <TableHead className="h-8 text-xs">Table</TableHead>
                                         <TableHead className="h-8 text-xs text-right">Rows</TableHead>
-                                        <TableHead className="h-8 text-xs">First</TableHead>
-                                        <TableHead className="h-8 text-xs">Last</TableHead>
+                                        <TableHead className="h-8 text-xs">Range</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -233,8 +239,7 @@ export function DataSyncPanel({ onClose }: DataSyncPanelProps) {
                                             <TableRow key={key} className={cn(empty && 'text-muted-foreground')}>
                                                 <TableCell className="py-1.5 text-xs">{INVENTORY_LABEL[key] ?? humanizeKey(key)}</TableCell>
                                                 <TableCell className="py-1.5 text-xs text-right tabular-nums">{formatCount(e?.rows ?? 0)}</TableCell>
-                                                <TableCell className="py-1.5 text-xs whitespace-nowrap">{empty ? '—' : formatDay(e.first)}</TableCell>
-                                                <TableCell className="py-1.5 text-xs whitespace-nowrap">{empty ? '—' : formatDay(e.last)}</TableCell>
+                                                <TableCell className="py-1.5 text-xs whitespace-nowrap text-muted-foreground">{empty ? '—' : `${shortDay(e.first)} – ${shortDay(e.last)}`}</TableCell>
                                             </TableRow>
                                         );
                                     })}

@@ -19,7 +19,7 @@ export function ChatPage({ messages, isLoading, onSend, onClear }: ChatPageProps
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (scrollRef.current) {
+        if (scrollRef.current && messages.length > 0) {
             scrollRef.current.scrollIntoView({ behavior: "smooth" });
         }
     }, [messages]);
@@ -54,8 +54,7 @@ export function ChatPage({ messages, isLoading, onSend, onClear }: ChatPageProps
                                 <Bot className="h-12 w-12 mx-auto mb-4 opacity-50" />
                                 <h3 className="text-lg font-medium">No messages yet</h3>
                                 <p className="mb-6">Start a conversation to analyze your data.</p>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl mx-auto text-sm">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-w-4xl mx-auto text-xs">
+                                <div className="flex flex-wrap justify-center gap-2 max-w-3xl mx-auto text-xs">
                                         {[
                                             // Trends & Aggregations
                                             "How is my sleep score trending over the last 90 days?",
@@ -88,12 +87,11 @@ export function ChatPage({ messages, isLoading, onSend, onClear }: ChatPageProps
                                             <button
                                                 key={i}
                                                 onClick={() => onSend(q)}
-                                                className="p-3 bg-muted/50 hover:bg-muted rounded-lg text-left transition-colors border border-transparent hover:border-border"
+                                                className="px-3 py-1.5 bg-muted/50 hover:bg-muted rounded-full text-left transition-colors border border-transparent hover:border-border max-w-full"
                                             >
-                                                "{q}"
+                                                {q}
                                             </button>
                                         ))}
-                                    </div>
                                 </div>
                             </div>
                         )}

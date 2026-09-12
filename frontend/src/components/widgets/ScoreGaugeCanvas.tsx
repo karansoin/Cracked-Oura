@@ -84,7 +84,6 @@ export function ScoreGaugeCanvas({ score, title, color, className, emptyHint = '
                 <span className="text-sm font-medium mt-1.5" style={{ color: finalColor }}>
                     {hasScore ? `${band?.glyph ?? ''} ${band?.label ?? ''}`.trim() : emptyHint}
                 </span>
-                {title && <span className="text-[11px] text-muted-foreground mt-0.5">{title}</span>}
             </div>
         </div>
     );

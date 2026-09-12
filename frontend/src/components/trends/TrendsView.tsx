@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { WidgetSkeleton } from '@/components/widgets/WidgetSkeleton';
 import { SeriesTable } from '@/components/widgets/SeriesTable';
 import { TrendsChart, type XY } from './TrendsChart';
+import { TrendsRangeSelector } from './TrendsRangeSelector';
 import { useDashboard } from '@/contexts/DashboardContext';
 import { useAppStatus } from '@/contexts/AppStatusContext';
 import { api } from '@/lib/api';
@@ -284,6 +285,7 @@ export function TrendsView({ latestDate }: TrendsViewProps) {
                     </Select>
                 </div>
                 <div className="ml-auto flex items-center gap-2">
+                    <TrendsRangeSelector value={trends.range} onChange={(range) => updateTrends({ range })} />
                     <Button variant={viewAsTable ? 'secondary' : 'outline'} size="sm" className="gap-1.5" aria-pressed={viewAsTable} onClick={() => setViewAsTable(v => !v)}>
                         <Table2 className="h-3.5 w-3.5" aria-hidden="true" /> {viewAsTable ? 'View as chart' : 'View as table'}
                     </Button>

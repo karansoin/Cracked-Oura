@@ -123,8 +123,8 @@ export function WidgetCard({
         return (
             <Card className={cn("h-full flex flex-row items-center gap-3 px-4 relative", className)}>
                 {dragHandle}
-                <CardTitle className="text-xs font-medium text-muted-foreground truncate shrink-0 max-w-[55%]">{title}</CardTitle>
-                <div className="flex-1 min-w-0 flex items-center justify-end gap-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground truncate min-w-0 flex-1" title={title}>{title}</CardTitle>
+                <div className="shrink-0 flex items-center justify-end gap-2">
                     {children}
                     {editControls}
                 </div>

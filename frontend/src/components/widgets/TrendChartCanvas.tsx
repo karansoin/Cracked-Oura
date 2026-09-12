@@ -234,9 +234,14 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
                         const label = this.getLabelForValue(val as number);
                         if (!label) return '';
 
-                        // Intraday
+                        // Intraday: within a day and a half, the date prefix is noise
                         if (label.includes('T')) {
                             const date = new Date(label);
+                            const all = (this.chart.data.labels ?? []) as string[];
+                            const spanMs = all.length > 1 ? Date.parse(String(all[all.length - 1])) - Date.parse(String(all[0])) : 0;
+                            if (spanMs > 0 && spanMs <= 36 * 3600 * 1000) {
+                                return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                            }
                             return date.toLocaleString('en-US', {
                                 month: 'short',
                                 day: 'numeric',

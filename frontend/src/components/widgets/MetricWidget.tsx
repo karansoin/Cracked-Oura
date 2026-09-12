@@ -16,7 +16,7 @@ export function MetricWidget({ value, label, unit, color, compact = false, hint 
 
     if (compact) {
         return (
-            <div className="flex items-baseline justify-end gap-1.5 h-full w-full" aria-label={`${label ?? ''} ${value}${unit ? ' ' + unit : ''}`.trim()}>
+            <div className="flex items-baseline justify-end gap-1.5 h-full w-full whitespace-nowrap" aria-label={`${label ?? ''} ${value}${unit ? ' ' + unit : ''}`.trim()}>
                 <span className={cn("text-xl font-semibold tabular-nums", isEmpty && "text-muted-foreground")} style={{ color: isEmpty ? undefined : color }}>
                     {value}
                 </span>
